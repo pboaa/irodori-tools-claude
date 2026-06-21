@@ -506,7 +506,56 @@ button.reset:hover {
   height: 36px;
 }
 
+.curation-body {
+  display: flex;
+  gap: 12px;
+  align-items: start;
+}
+.folder-panel {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+}
+.folder-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  padding: 6px 8px !important;
+  cursor: pointer;
+  color: var(--text) !important;
+  text-align: left;
+  font-size: 12px;
+}
+.folder-item:hover {
+  background: var(--panel) !important;
+}
+.folder-item.on {
+  background: #2b3450 !important;
+  border-color: var(--accent) !important;
+}
+.folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-count {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .table-wrap {
+  flex: 1;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: auto;

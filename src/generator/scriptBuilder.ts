@@ -15,9 +15,14 @@ function activeParams(config: GenConfig): ParamRange[] {
 
 /** Remove emoji / pictograph / decorative-symbol characters. */
 export function stripEmoji(s: string): string {
-  return s.replace(
-    /[\u{1F000}-\u{1FAFF}\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\uFE0F\u200D]/gu,
-    '',
+  return (
+    s
+      .replace(
+        /[\u{1F000}-\u{1FAFF}\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}]/gu,
+        '',
+      )
+      // Variation selector + ZWJ left behind by removed emojis.
+      .replace(/\uFE0F|\u200D/g, '')
   );
 }
 

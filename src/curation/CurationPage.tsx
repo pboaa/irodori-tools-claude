@@ -6,6 +6,10 @@ import { transferKept } from './fsActions';
 
 const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '—' : String(n));
 
+/** Directory portion of a relative path ('(ルート)' for top-level files). */
+const dirOf = (relPath: string) =>
+  relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '(ルート)';
+
 export function CurationPage() {
   const { root, items, scanning, error, pick, setItems } = useDirectoryScan();
   const [selected, setSelected] = useState(0);
@@ -14,24 +18,42 @@ export function CurationPage() {
   const [mode, setMode] = useState<'copy' | 'move'>('copy');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [folderSel, setFolderSel] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Distinct folders (with counts) discovered under the opened root.
+  const folders = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of items) {
+      const d = dirOf(it.relPath);
+      map.set(d, (map.get(d) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [items]);
+
+  // A stale folder selection (e.g. after opening a new root) falls back to all.
+  const effFolder = folderSel && folders.some(([d]) => d === folderSel) ? folderSel : null;
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (it) =>
+    return items.filter((it) => {
+      if (effFolder && dirOf(it.relPath) !== effFolder) return false;
+      if (!q) return true;
+      return (
         it.relPath.toLowerCase().includes(q) ||
-        (it.meta?.text ?? '').toLowerCase().includes(q),
-    );
-  }, [items, filter]);
+        (it.meta?.text ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [items, filter, effFolder]);
 
   const clampSel = useCallback(
     (i: number) => Math.max(0, Math.min(i, filtered.length - 1)),
     [filtered.length],
   );
 
-  const current: AudioItem | null = filtered[selected] ?? null;
+  // Keep the highlighted row in range as the visible set changes.
+  const selIndex = Math.min(selected, Math.max(0, filtered.length - 1));
+  const current: AudioItem | null = filtered[selIndex] ?? null;
   const keptCount = items.filter((it) => it.status === 'keep').length;
 
   const setStatus = useCallback(
@@ -43,6 +65,11 @@ export function CurationPage() {
   );
 
   const goNext = useCallback(() => setSelected((s) => clampSel(s + 1)), [clampSel]);
+
+  const pickFolder = (dir: string | null) => {
+    setFolderSel(dir);
+    setSelected(0);
+  };
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -126,7 +153,10 @@ export function CurationPage() {
           className="filter"
           placeholder="テキスト/パスで絞り込み"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(e) => {
+            setFilter(e.target.value);
+            setSelected(0);
+          }}
         />
         <label className="checkbox">
           <input type="checkbox" checked={autoPlay} onChange={(e) => setAutoPlay(e.target.checked)} />
@@ -148,7 +178,31 @@ export function CurationPage() {
 
       <AudioPlayer item={current} autoPlay={autoPlay} onEnded={goNext} audioRef={audioRef} />
 
-      <div className="table-wrap">
+      <div className="curation-body">
+        {folders.length > 0 && (
+          <aside className="folder-panel">
+            <button
+              className={`folder-item ${effFolder === null ? 'on' : ''}`}
+              onClick={() => pickFolder(null)}
+            >
+              <span className="folder-name">すべて</span>
+              <span className="folder-count">{items.length}</span>
+            </button>
+            {folders.map(([dir, count]) => (
+              <button
+                key={dir}
+                className={`folder-item ${effFolder === dir ? 'on' : ''}`}
+                title={dir}
+                onClick={() => pickFolder(dir)}
+              >
+                <span className="folder-name">📁 {dir.split('/').pop()}</span>
+                <span className="folder-count">{count}</span>
+              </button>
+            ))}
+          </aside>
+        )}
+
+        <div className="table-wrap">
         <table className="grid">
           <thead>
             <tr>
@@ -183,7 +237,7 @@ export function CurationPage() {
                 ),
                 (<tr
                 key={it.id}
-                className={`${i === selected ? 'sel' : ''} ${it.status}`}
+                className={`${i === selIndex ? 'sel' : ''} ${it.status}`}
                 onClick={() => setSelected(i)}
               >
                 <td>
@@ -224,6 +278,7 @@ export function CurationPage() {
         {root && !scanning && filtered.length === 0 && (
           <p className="info">wav が見つかりませんでした。</p>
         )}
+        </div>
       </div>
 
       <p className="hint">
