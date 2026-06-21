@@ -207,13 +207,17 @@ export function CurationPage() {
           <thead>
             <tr>
               <th>状態</th>
-              <th>パス</th>
+              <th>#</th>
               <th>テキスト</th>
               <th>絵文字</th>
               <th>seed</th>
               <th>steps</th>
-              <th>cfg-text</th>
+              <th>cfg-T</th>
+              <th>cfg-C</th>
+              <th>cfg-S</th>
               <th>dur</th>
+              <th>sway</th>
+              <th>trunc</th>
               <th>ref</th>
             </tr>
           </thead>
@@ -232,7 +236,7 @@ export function CurationPage() {
               return [
                 showGroup && (
                   <tr key={`g-${it.id}`} className="group">
-                    <td colSpan={9}>📁 {dir}</td>
+                    <td colSpan={13}>📁 {dir}</td>
                   </tr>
                 ),
                 (<tr
@@ -260,13 +264,17 @@ export function CurationPage() {
                     ✕
                   </button>
                 </td>
-                <td className="path">{it.relPath}</td>
-                <td className="text">{it.meta?.text ?? '—'}</td>
+                <td className="num">{fmt(it.meta?.index)}</td>
+                <td className="text" title={it.meta?.text ?? ''}>{it.meta?.text ?? '—'}</td>
                 <td>{it.meta?.emoji ?? '—'}</td>
-                <td>{fmt(it.meta?.seed)}</td>
-                <td>{fmt(it.meta?.numSteps)}</td>
-                <td>{fmt(it.meta?.cfgScaleText)}</td>
-                <td>{fmt(it.meta?.durationScale)}</td>
+                <td className="num">{fmt(it.meta?.seed)}</td>
+                <td className="num">{fmt(it.meta?.numSteps)}</td>
+                <td className="num">{fmt(it.meta?.cfgScaleText)}</td>
+                <td className="num">{fmt(it.meta?.cfgScaleCaption)}</td>
+                <td className="num">{fmt(it.meta?.cfgScaleSpeaker)}</td>
+                <td className="num">{fmt(it.meta?.durationScale)}</td>
+                <td className="num">{fmt(it.meta?.swayCoeff)}</td>
+                <td className="num">{fmt(it.meta?.truncationFactor)}</td>
                 <td className="ref" title={it.meta?.refWav ?? ''}>
                   {it.meta?.refWav ? it.meta.refWav.split(/[/\\]/).pop() : it.meta?.refMode === 'no-ref' ? 'no-ref' : '—'}
                 </td>

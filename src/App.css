@@ -615,9 +615,14 @@ button.reset:hover {
   font-family: ui-monospace, monospace;
 }
 .grid .text {
-  max-width: 280px;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.grid .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .grid .ref {
