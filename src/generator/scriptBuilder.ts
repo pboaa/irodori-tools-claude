@@ -18,6 +18,16 @@ function emojiEnabled(config: GenConfig): boolean {
   return config.emojiPlacement !== 'off' && config.selectedEmojis.length > 0;
 }
 
+/** PowerShell expression yielding the emoji insert count (fixed or per-gen range). */
+function psEmojiCountExpr(config: GenConfig): string {
+  if (config.emojiCountMode === 'range') {
+    const lo = Math.max(1, Math.floor(config.emojiCountMin));
+    const hi = Math.max(lo, Math.floor(config.emojiCountMax));
+    return `Get-Random -Minimum ${lo} -Maximum ${hi + 1}`;
+  }
+  return String(Math.max(1, Math.floor(config.emojiCount)));
+}
+
 /** Per-flag PowerShell variable name and sidecar JSON key. */
 const FLAG_INFO: Record<string, { psVar: string; jsonKey: string; env: string }> = {
   seed: { psVar: 'Seed', jsonKey: 'seed', env: 'TTS_SEED' },
@@ -70,9 +80,9 @@ function psEmojiBlock(config: GenConfig): string[] {
       );
       break;
     case 'random': {
-      const n = Math.max(1, Math.floor(config.emojiRandomCount));
+      L.push(`    $n = ${psEmojiCountExpr(config)}`);
       L.push(
-        `    for ($k = 0; $k -lt ${n}; $k++) {`,
+        '    for ($k = 0; $k -lt $n; $k++) {',
         `      $e = ${pick}`,
         '      $pos = Get-Random -Minimum 0 -Maximum ($Text.Length + 1)',
         '      $Text = $Text.Substring(0, $pos) + $e + $Text.Substring($pos)',
@@ -223,11 +233,11 @@ function batEmojiComposeCmd(config: GenConfig): string {
       parts.push(`$e1=${pick}`, `$e2=${pick}`, "Write-Output ($e1+$b+$e2+'|'+$e1+$e2)");
       break;
     case 'random': {
-      const n = Math.max(1, Math.floor(config.emojiRandomCount));
       parts.push(
         '$t=$b',
         "$ap=''",
-        `for($k=0;$k -lt ${n};$k++){$e=${pick};$pos=Get-Random -Minimum 0 -Maximum ($t.Length+1);$t=$t.Substring(0,$pos)+$e+$t.Substring($pos);$ap+=$e}`,
+        `$n=${psEmojiCountExpr(config)}`,
+        `for($k=0;$k -lt $n;$k++){$e=${pick};$pos=Get-Random -Minimum 0 -Maximum ($t.Length+1);$t=$t.Substring(0,$pos)+$e+$t.Substring($pos);$ap+=$e}`,
         "Write-Output ($t+'|'+$ap)",
       );
       break;

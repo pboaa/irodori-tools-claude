@@ -23,13 +23,15 @@ describe('buildPs1', () => {
 
   it('omits flags for "off" params and passes fixed values', () => {
     const c = cfg();
-    c.params = c.params.map((p) =>
-      p.flag === 'num-steps' ? { ...p, kind: 'fixed', fixed: 32 } : p,
-    );
+    c.params = c.params.map((p) => {
+      if (p.flag === 'num-steps') return { ...p, kind: 'fixed', fixed: 32 };
+      if (p.flag === 'cfg-scale-text') return { ...p, kind: 'off' };
+      return p;
+    });
     const s = buildPs1(c);
     expect(s).toContain('$NumSteps = 32');
     expect(s).toContain("@('--num-steps', $NumSteps)");
-    // cfg-scale-text is still off -> no draw line, json null
+    // cfg-scale-text is off -> no draw line, json null
     expect(s).not.toContain('$CfgText =');
     expect(s).toContain('cfgScaleText = $null');
   });
@@ -83,10 +85,16 @@ describe('buildPs1', () => {
     expect(buildPs1(cfg({ emojiPlacement: 'both', selectedEmojis: ['🤭'] }))).toContain('$Text = "$e1$BaseText$e2"');
   });
 
-  it('inserts N random emojis for random placement', () => {
-    const s = buildPs1(cfg({ emojiPlacement: 'random', emojiRandomCount: 3, selectedEmojis: ['🤭'] }));
-    expect(s).toContain('for ($k = 0; $k -lt 3; $k++)');
+  it('inserts a fixed number of random emojis', () => {
+    const s = buildPs1(cfg({ emojiPlacement: 'random', emojiCountMode: 'fixed', emojiCount: 3, selectedEmojis: ['🤭'] }));
+    expect(s).toContain('$n = 3');
+    expect(s).toContain('for ($k = 0; $k -lt $n; $k++)');
     expect(s).toContain('$Text.Substring(0, $pos) + $e + $Text.Substring($pos)');
+  });
+
+  it('draws a per-generation count for range mode', () => {
+    const s = buildPs1(cfg({ emojiPlacement: 'random', emojiCountMode: 'range', emojiCountMin: 2, emojiCountMax: 5, selectedEmojis: ['🤭'] }));
+    expect(s).toContain('$n = Get-Random -Minimum 2 -Maximum 6');
   });
 });
 

@@ -50,11 +50,16 @@ export interface GenConfig {
   caption: string;
   refMode: RefMode;
   refWav: string;
-  /** Emojis chosen from the supported set. */
+  /** Emojis chosen from the supported set (in click order). */
   selectedEmojis: string[];
   emojiPlacement: EmojiPlacement;
-  /** Number of emojis inserted when placement === 'random'. */
-  emojiRandomCount: number;
+  /** Count mode for placement === 'random'. */
+  emojiCountMode: 'fixed' | 'range';
+  /** Fixed number inserted when emojiCountMode === 'fixed' (1-10). */
+  emojiCount: number;
+  /** Inclusive count range when emojiCountMode === 'range' (1-10). */
+  emojiCountMin: number;
+  emojiCountMax: number;
   /** Generations per text line. */
   count: number;
   /** Output directory the scripts create and write into. */
