@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { EMOJIS } from '../lib/emojis';
 import { makeEntry } from '../lib/defaults';
+import { TokenPalette } from './TokenPalette';
 import type { EmojiEntry } from '../types';
 
 interface Props {
@@ -10,7 +11,6 @@ interface Props {
 
 const LABEL_OF = new Map(EMOJIS.map((e) => [e.emoji, e.label]));
 const COUNT_OPTS = Array.from({ length: 11 }, (_, i) => i); // 0..10
-const SYMBOLS = ['♡', '！', '？', '〜', '♪', '…', '、', '。'];
 
 /** One numeric count cell (single value in fixed mode, min-max in range mode). */
 function CountCell({
@@ -108,17 +108,9 @@ export function EmojiPicker({ entries, onChange }: Props) {
         ))}
       </div>
 
-      <div className="symbol-row">
-        {SYMBOLS.map((sym) => (
-          <button type="button" key={sym} className="symbol-btn" onClick={() => add(sym)}>
-            {sym}
-          </button>
-        ))}
-      </div>
-
       <div className="custom-add">
         <input
-          placeholder="任意の記号・文字（♡ ! ? など）"
+          placeholder="任意の文字（複数文字もOK）"
           value={custom}
           onChange={(e) => setCustom(e.target.value)}
           onKeyDown={(e) => {
@@ -138,21 +130,8 @@ export function EmojiPicker({ entries, onChange }: Props) {
         </button>
       </div>
 
-      <p className="param-hint">下の絵文字をクリックで追加（同じ絵文字も複数追加可）。</p>
-      <div className="emoji-grid">
-        {EMOJIS.map(({ emoji, label }) => (
-          <button
-            type="button"
-            key={emoji}
-            className="emoji-cell"
-            title={label}
-            onClick={() => add(emoji)}
-          >
-            <span className="emoji-char">{emoji}</span>
-            <span className="emoji-label">{label}</span>
-          </button>
-        ))}
-      </div>
+      <p className="param-hint">下のパレットをクリックで追加（同じものも複数追加可）。</p>
+      <TokenPalette onPick={add} />
     </div>
   );
 }

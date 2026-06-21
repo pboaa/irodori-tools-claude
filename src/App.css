@@ -107,17 +107,16 @@ textarea {
 /* 2x2 layout: config | params (right) / emoji (bottom-left) | output (bottom-right). */
 .gen-grid {
   display: grid;
-  /* Right column (params/output) wider so range sliders get real width. */
-  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  /* Left = settings/text/emoji, right = params; output spans full width below. */
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   grid-template-areas:
     "config params"
-    "emoji  output";
+    "output output";
   gap: 16px;
   align-items: start;
 }
 .area-config { grid-area: config; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .area-params { grid-area: params; min-width: 0; }
-.area-emoji { grid-area: emoji; min-width: 0; }
 .area-output { grid-area: output; min-width: 0; }
 
 .generator section {
@@ -377,9 +376,18 @@ button.reset:hover {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 6px;
-  max-height: 260px;
+  max-height: 230px;
   overflow-y: auto;
   padding-right: 4px;
+}
+/* Compact, char-only palette for in-text insertion. */
+.emoji-grid.compact {
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  max-height: 120px;
+}
+.emoji-grid.compact .emoji-cell {
+  justify-content: center;
+  padding: 4px 2px;
 }
 .emoji-cell {
   display: flex;
@@ -577,13 +585,12 @@ button.mini.reject {
   margin-top: 10px;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 900px) {
   .gen-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
       "config"
       "params"
-      "emoji"
       "output";
   }
 }

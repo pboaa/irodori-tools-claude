@@ -8,6 +8,18 @@ export interface EmojiDef {
   label: string;
 }
 
+/** Common non-emoji symbols, merged into the same palette as emojis. */
+export const SYMBOL_DEFS: EmojiDef[] = [
+  { emoji: '♡', label: 'ハート（甘え・好意）' },
+  { emoji: '！', label: '強調・感嘆' },
+  { emoji: '？', label: '問いかけ・疑問' },
+  { emoji: '〜', label: '語尾を伸ばす' },
+  { emoji: '♪', label: '弾んだ・歌うように' },
+  { emoji: '…', label: '間・ためらい' },
+  { emoji: '、', label: '読点（短い間）' },
+  { emoji: '。', label: '句点（区切り）' },
+];
+
 export const EMOJIS: EmojiDef[] = [
   { emoji: '👂', label: '囁き、耳元の音' },
   { emoji: '😮‍💨', label: '吐息、溜息、寝息' },
@@ -49,3 +61,6 @@ export const EMOJIS: EmojiDef[] = [
   { emoji: '😌', label: '安堵、満足げに' },
   { emoji: '🤔', label: '疑問の声' },
 ];
+
+/** Unified palette: emojis followed by symbols. */
+export const ALL_TOKENS: EmojiDef[] = [...EMOJIS, ...SYMBOL_DEFS];

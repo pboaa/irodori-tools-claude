@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { GenConfig } from '../types';
 import { defaultConfig, defaultParams, resetParams } from '../lib/defaults';
 import { buildPs1, buildBat, splitLines } from './scriptBuilder';
 import { ParamRangeInput } from './ParamRangeInput';
 import { EmojiPicker } from './EmojiPicker';
+import { TokenPalette } from './TokenPalette';
 
 const FACTORY_PARAMS = defaultParams();
+const N_OPTIONS = [1, 2, 3, 4, 5, 8, 10, 15, 20, 30, 50, 100];
 
 function download(filename: string, text: string) {
   // Windows PowerShell 5.1 reads BOM-less UTF-8 .ps1 as ANSI (corrupts 日本語/絵文字),
@@ -25,6 +27,7 @@ export function GeneratorPage() {
   const [tab, setTab] = useState<'ps1' | 'bat'>('ps1');
   const [copied, setCopied] = useState(false);
   const [showScript, setShowScript] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const set = (patch: Partial<GenConfig>) => setConfig((c) => ({ ...c, ...patch }));
 
@@ -35,6 +38,22 @@ export function GeneratorPage() {
   const textCount = splitLines(config.texts).length;
   const total = textCount * Math.max(1, Math.floor(config.count));
 
+  /** Insert a token into the text at the current cursor / selection. */
+  const insertAtCursor = (token: string) => {
+    const ta = textareaRef.current;
+    const text = config.texts;
+    const start = ta?.selectionStart ?? text.length;
+    const end = ta?.selectionEnd ?? start;
+    const next = text.slice(0, start) + token + text.slice(end);
+    set({ texts: next });
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      const pos = start + token.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  };
+
   const copy = async () => {
     await navigator.clipboard.writeText(script);
     setCopied(true);
@@ -43,7 +62,7 @@ export function GeneratorPage() {
 
   return (
     <div className="page generator gen-grid">
-      {/* top-left: run settings + text */}
+      {/* left column */}
       <div className="area-config">
         <section>
           <h3>実行設定</h3>
@@ -73,7 +92,15 @@ export function GeneratorPage() {
 
         <section>
           <h3>テキスト（1行 = 1テキスト）</h3>
-          <textarea rows={4} value={config.texts} onChange={(e) => set({ texts: e.target.value })} />
+          <textarea
+            ref={textareaRef}
+            rows={4}
+            value={config.texts}
+            onChange={(e) => set({ texts: e.target.value })}
+          />
+          <p className="param-hint">下のパレットをクリックでカーソル位置に挿入。</p>
+          <TokenPalette onPick={insertAtCursor} compact />
+
           <label className="field">
             caption（VoiceDesign 用・任意）
             <input value={config.caption} onChange={(e) => set({ caption: e.target.value })} />
@@ -95,23 +122,34 @@ export function GeneratorPage() {
                 <input value={config.refWav} onChange={(e) => set({ refWav: e.target.value })} />
               </label>
             )}
+            <label className="field">
+              生成回数 N
+              <select value={config.count} onChange={(e) => set({ count: Number(e.target.value) })}>
+                {N_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
           </div>
-          <label className="field">
-            テキストごとの生成回数 N
-            <input
-              type="number"
-              min={1}
-              value={config.count}
-              onChange={(e) => set({ count: Number(e.target.value) })}
-            />
-          </label>
           <div className="output-count">
             出力ファイル数: <b>{total}</b>（{textCount} テキスト × {config.count} 回）
           </div>
         </section>
+
+        <section>
+          <h3>絵文字・記号（ランダム付与）</h3>
+          <p className="param-hint">
+            トークンごとに「文頭・文末・ランダム位置」に入れる個数を設定。固定 or
+            範囲（生成ごとに変動）を選べ、同じトークンも複数追加できます。例: 👂 を文頭3・文末3で囁き声に。
+          </p>
+          <EmojiPicker
+            entries={config.emojiEntries}
+            onChange={(emojiEntries) => set({ emojiEntries })}
+          />
+        </section>
       </div>
 
-      {/* right: parameters */}
+      {/* right column: parameters */}
       <section className="area-params">
         <div className="section-head">
           <h3>ランダム化パラメータ</h3>
@@ -134,20 +172,7 @@ export function GeneratorPage() {
         </div>
       </section>
 
-      {/* bottom-left: emoji entries */}
-      <section className="area-emoji">
-        <h3>絵文字・記号（スタイル制御）</h3>
-        <p className="param-hint">
-          トークンごとに「文頭・文末・ランダム位置」に入れる個数を設定。固定 or
-          範囲（生成ごとに変動）を選べ、同じ絵文字も複数追加できます。例: 👂 を文頭3・文末3で囁き声に。
-        </p>
-        <EmojiPicker
-          entries={config.emojiEntries}
-          onChange={(emojiEntries) => set({ emojiEntries })}
-        />
-      </section>
-
-      {/* bottom-right: output / script preview */}
+      {/* full-width bottom: output / script preview */}
       <section className={`area-output accordion ${showScript ? 'open' : ''}`}>
         <div className="output-summary">
           このスクリプトは <b>{total}</b> ファイルを生成します
