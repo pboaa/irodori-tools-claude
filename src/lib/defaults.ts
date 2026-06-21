@@ -48,6 +48,7 @@ export function defaultConfig(): GenConfig {
     runPrefix: 'uv run --no-sync python infer.py',
     checkpointKind: 'hf',
     checkpoint: 'Aratako/Irodori-TTS-500M-v3',
+    precision: 'bf16',
     texts: 'こんにちは、私はAIです。',
     caption: '',
     refMode: 'no-ref',

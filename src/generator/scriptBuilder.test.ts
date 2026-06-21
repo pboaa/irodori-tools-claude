@@ -172,6 +172,15 @@ describe('buildPy', () => {
     expect(s).toContain('model_precision="bf16"');
   });
 
+  it('honors the precision option', () => {
+    expect(buildPy(cfg({ precision: 'bf16' }))).toContain('model_precision="bf16"');
+    const fp = buildPy(cfg({ precision: 'fp32' }));
+    expect(fp).toContain('model_precision="fp32"');
+    expect(fp).toContain('codec_precision="fp32"');
+    expect(buildPs1(cfg({ precision: 'fp32' }))).toContain('"--model-precision", \'fp32\'');
+    expect(buildBat(cfg({ precision: 'fp32' }))).toContain('--model-precision fp32 --codec-precision fp32');
+  });
+
   it('resolves hf vs local checkpoint', () => {
     expect(buildPy(cfg({ checkpointKind: 'hf' }))).toContain('hf_hub_download(repo_id=MODEL, filename="model.safetensors")');
     expect(buildPy(cfg({ checkpointKind: 'local' }))).toContain('MODEL if CHECKPOINT_KIND == "local"');

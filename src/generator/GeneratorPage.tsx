@@ -86,10 +86,22 @@ export function GeneratorPage() {
             チェックポイント
             <input value={config.checkpoint} onChange={(e) => set({ checkpoint: e.target.value })} />
           </label>
-          <label className="field">
-            出力フォルダ
-            <input value={config.outputDir} onChange={(e) => set({ outputDir: e.target.value })} />
-          </label>
+          <div className="inline">
+            <label className="field grow">
+              出力フォルダ
+              <input value={config.outputDir} onChange={(e) => set({ outputDir: e.target.value })} />
+            </label>
+            <label className="field">
+              精度
+              <select
+                value={config.precision}
+                onChange={(e) => set({ precision: e.target.value as GenConfig['precision'] })}
+              >
+                <option value="bf16">bf16（速い/GPU）</option>
+                <option value="fp32">fp32（安全/CPU）</option>
+              </select>
+            </label>
+          </div>
         </section>
 
         <section>
@@ -180,7 +192,7 @@ export function GeneratorPage() {
           このスクリプトは <b>{total}</b> ファイルを生成します
         </div>
         <p className="param-hint">
-          🚀 <b>.py</b> はモデルを1回だけ読み込んでループ（bf16）。1音声ごとに起動する
+          🚀 <b>.py</b> はモデルを1回だけ読み込んでループ（精度 {config.precision}）。1音声ごとに起動する
           .ps1/.bat より大幅に高速です。実行: <code>uv run --no-sync python generate_tts.py</code>
         </p>
         <div className="accordion-head">

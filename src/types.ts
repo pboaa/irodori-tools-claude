@@ -67,6 +67,8 @@ export interface GenConfig {
   /** "hf" => --hf-checkpoint, "local" => --checkpoint */
   checkpointKind: 'hf' | 'local';
   checkpoint: string;
+  /** Inference precision: bf16 (fast, GPU) or fp32 (safe, CPU/old GPU). */
+  precision: 'bf16' | 'fp32';
   /** One text per non-empty line. */
   texts: string;
   caption: string;

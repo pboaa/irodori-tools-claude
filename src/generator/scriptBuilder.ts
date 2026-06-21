@@ -215,6 +215,7 @@ export function buildPs1(config: GenConfig): string {
   // Build args array.
   L.push('    $cmdArgs = @(');
   L.push(`      ${psLit(checkpointFlag)}, $Model,`);
+  L.push(`      "--model-precision", ${psLit(config.precision)}, "--codec-precision", ${psLit(config.precision)},`);
   L.push('      "--text", $Text,');
   if (config.refMode === 'no-ref') {
     L.push('      "--no-ref",');
@@ -410,7 +411,9 @@ export function buildBat(config: GenConfig): string {
   L.push('');
 
   // infer.py invocation.
-  const inferParts: string[] = [`${config.runPrefix} ${checkpointFlag} "%MODEL%" --text "!TTS_TEXT!"`];
+  const inferParts: string[] = [
+    `${config.runPrefix} ${checkpointFlag} "%MODEL%" --model-precision ${config.precision} --codec-precision ${config.precision} --text "!TTS_TEXT!"`,
+  ];
   if (config.refMode === 'no-ref') inferParts.push('--no-ref');
   else inferParts.push('--ref-wav "%REFWAV%"');
   if (config.caption.trim()) inferParts.push('--caption "%CAPTION%"');
@@ -565,9 +568,9 @@ export function buildPy(config: GenConfig): string {
   L.push('    checkpoint=checkpoint_path,');
   L.push('    model_device=device,');
   L.push('    codec_repo="Aratako/Semantic-DACVAE-Japanese-32dim",');
-  L.push('    model_precision="bf16",  # faster than the fp32 default');
+  L.push(`    model_precision=${j(config.precision)},  # bf16=fast(GPU) / fp32=safe(CPU)`);
   L.push('    codec_device=device,');
-  L.push('    codec_precision="bf16",');
+  L.push(`    codec_precision=${j(config.precision)},`);
   L.push('    codec_deterministic_encode=True,');
   L.push('    codec_deterministic_decode=True,');
   L.push('    compile_model=False,');
