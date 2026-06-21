@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { GenConfig } from '../types';
 import { defaultConfig, defaultParams, resetParams } from '../lib/defaults';
-import { buildPs1, buildBat, splitLines } from './scriptBuilder';
+import { buildPs1, buildBat, buildPy, splitLines } from './scriptBuilder';
 import { ParamRangeInput } from './ParamRangeInput';
 import { EmojiPicker } from './EmojiPicker';
 import { TokenPalette } from './TokenPalette';
@@ -24,7 +24,7 @@ function download(filename: string, text: string) {
 
 export function GeneratorPage() {
   const [config, setConfig] = useState<GenConfig>(defaultConfig);
-  const [tab, setTab] = useState<'ps1' | 'bat'>('ps1');
+  const [tab, setTab] = useState<'py' | 'ps1' | 'bat'>('py');
   const [copied, setCopied] = useState(false);
   const [showScript, setShowScript] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -33,7 +33,9 @@ export function GeneratorPage() {
 
   const ps1 = useMemo(() => buildPs1(config), [config]);
   const bat = useMemo(() => buildBat(config), [config]);
-  const script = tab === 'ps1' ? ps1 : bat;
+  const py = useMemo(() => buildPy(config), [config]);
+  const script = tab === 'py' ? py : tab === 'ps1' ? ps1 : bat;
+  const filename = tab === 'py' ? 'generate_tts.py' : tab === 'ps1' ? 'generate_tts.ps1' : 'generate_tts.bat';
 
   const textCount = splitLines(config.texts).length;
   const total = textCount * Math.max(1, Math.floor(config.count));
@@ -177,21 +179,23 @@ export function GeneratorPage() {
         <div className="output-summary">
           このスクリプトは <b>{total}</b> ファイルを生成します
         </div>
+        <p className="param-hint">
+          🚀 <b>.py</b> はモデルを1回だけ読み込んでループ（bf16）。1音声ごとに起動する
+          .ps1/.bat より大幅に高速です。実行: <code>uv run --no-sync python generate_tts.py</code>
+        </p>
         <div className="accordion-head">
           <button className="accordion-toggle" onClick={() => setShowScript((v) => !v)}>
             <span className="chevron">{showScript ? '▾' : '▸'}</span>
             スクリプトプレビュー
           </button>
           <div className="tabs small">
+            <button className={tab === 'py' ? 'active' : ''} onClick={() => setTab('py')}>.py 🚀</button>
             <button className={tab === 'ps1' ? 'active' : ''} onClick={() => setTab('ps1')}>.ps1</button>
             <button className={tab === 'bat' ? 'active' : ''} onClick={() => setTab('bat')}>.bat</button>
           </div>
           <span className="grow" />
           <button onClick={copy}>{copied ? 'コピー済' : 'コピー'}</button>
-          <button
-            className="primary"
-            onClick={() => download(tab === 'ps1' ? 'generate_tts.ps1' : 'generate_tts.bat', script)}
-          >
+          <button className="primary" onClick={() => download(filename, script)}>
             ダウンロード
           </button>
         </div>

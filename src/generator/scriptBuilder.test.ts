@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPs1, buildBat, splitLines, textFolderName, stripEmoji } from './scriptBuilder';
+import { buildPs1, buildBat, buildPy, splitLines, textFolderName, stripEmoji } from './scriptBuilder';
 import { defaultConfig, makeEntry } from '../lib/defaults';
 import type { EmojiEntry, GenConfig } from '../types';
 
@@ -156,6 +156,31 @@ describe('buildPs1', () => {
     );
     expect(s.match(/Token = '👂'/g)).toHaveLength(2);
     expect(s).toContain("Token = '♡'");
+  });
+});
+
+describe('buildPy', () => {
+  it('loads the runtime once and loops generations', () => {
+    const s = buildPy(cfg({ texts: 'やあ\nどうも' }));
+    expect(s).toContain('from irodori_tts.inference_runtime import');
+    expect(s).toContain('runtime = InferenceRuntime.from_key(RuntimeKey(');
+    expect(s).toContain('for ti, base in enumerate(TEXTS):');
+    expect(s).toContain('result = runtime.synthesize(SamplingRequest(');
+    expect(s).toContain('save_wav(str(text_dir / f"{name}.wav")');
+    // runtime construction must be outside the loops (loaded once)
+    expect(s.indexOf('InferenceRuntime.from_key')).toBeLessThan(s.indexOf('for ti, base'));
+    expect(s).toContain('model_precision="bf16"');
+  });
+
+  it('resolves hf vs local checkpoint', () => {
+    expect(buildPy(cfg({ checkpointKind: 'hf' }))).toContain('hf_hub_download(repo_id=MODEL, filename="model.safetensors")');
+    expect(buildPy(cfg({ checkpointKind: 'local' }))).toContain('MODEL if CHECKPOINT_KIND == "local"');
+  });
+
+  it('embeds emoji entries and params as Python-valid literals', () => {
+    const s = buildPy(cfg({ emojiEntries: [entry('👂', { mode: 'fixed', headMin: 3, headMax: 3 })] }));
+    expect(s).toContain('ENTRIES = [["👂",3,3,1,1,0,0]]');
+    expect(s).toContain('PARAMS = {');
   });
 });
 
