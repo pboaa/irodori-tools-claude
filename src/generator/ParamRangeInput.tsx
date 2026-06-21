@@ -77,6 +77,8 @@ export function ParamRangeInput({ param, factory, onChange }: Props) {
         </button>
       </div>
 
+      <div className="param-desc">{param.desc}</div>
+
       {param.kind === 'off' && (
         <div className="param-hint">infer.py の既定値（{factory.default}）を使用</div>
       )}

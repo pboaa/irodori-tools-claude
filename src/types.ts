@@ -22,6 +22,8 @@ export interface ParamRange {
   max: number;
   /** Decimal places for float rounding. */
   decimals: number;
+  /** Short explanation shown in the UI. */
+  desc: string;
   /** Whether to render slider controls (false => number inputs, e.g. seed). */
   slider: boolean;
   /** Absolute slider track bounds. */
@@ -35,8 +37,28 @@ export interface ParamRange {
 
 export type RefMode = 'no-ref' | 'ref-wav';
 
-/** Where to inject emojis into each text. */
-export type EmojiPlacement = 'off' | 'head' | 'tail' | 'both' | 'random';
+/** Whether an emoji entry's per-slot counts are fixed or randomized. */
+export type CountMode = 'fixed' | 'range';
+
+/**
+ * One emoji/symbol injection rule. The same token may appear in multiple
+ * entries with different settings (e.g. 👂 fixed 2/2 plus 👂 random 0-2/0-2).
+ * Tokens are arbitrary text, so ♡ ! ? etc. are also supported.
+ */
+export interface EmojiEntry {
+  id: string;
+  token: string;
+  mode: CountMode;
+  /** Count placed at the start of the text (min===max in fixed mode). */
+  headMin: number;
+  headMax: number;
+  /** Count placed at the end of the text. */
+  tailMin: number;
+  tailMax: number;
+  /** Count inserted at random positions inside the text. */
+  randMin: number;
+  randMax: number;
+}
 
 /** Full generator configuration that drives script building. */
 export interface GenConfig {
@@ -50,16 +72,8 @@ export interface GenConfig {
   caption: string;
   refMode: RefMode;
   refWav: string;
-  /** Emojis chosen from the supported set (in click order). */
-  selectedEmojis: string[];
-  emojiPlacement: EmojiPlacement;
-  /** Count mode for placement === 'random'. */
-  emojiCountMode: 'fixed' | 'range';
-  /** Fixed number inserted when emojiCountMode === 'fixed' (1-10). */
-  emojiCount: number;
-  /** Inclusive count range when emojiCountMode === 'range' (1-10). */
-  emojiCountMin: number;
-  emojiCountMax: number;
+  /** Per-token emoji/symbol injection rules. */
+  emojiEntries: EmojiEntry[];
   /** Generations per text line. */
   count: number;
   /** Output directory the scripts create and write into. */

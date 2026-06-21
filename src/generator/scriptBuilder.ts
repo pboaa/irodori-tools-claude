@@ -13,19 +13,19 @@ function activeParams(config: GenConfig): ParamRange[] {
   return config.params.filter((p) => p.kind !== 'off');
 }
 
-/** Whether emoji injection is enabled. */
+/** Whether any emoji injection is configured. */
 function emojiEnabled(config: GenConfig): boolean {
-  return config.emojiPlacement !== 'off' && config.selectedEmojis.length > 0;
+  return config.emojiEntries.length > 0;
 }
 
-/** PowerShell expression yielding the emoji insert count (fixed or per-gen range). */
-function psEmojiCountExpr(config: GenConfig): string {
-  if (config.emojiCountMode === 'range') {
-    const lo = Math.max(1, Math.floor(config.emojiCountMin));
-    const hi = Math.max(lo, Math.floor(config.emojiCountMax));
-    return `Get-Random -Minimum ${lo} -Maximum ${hi + 1}`;
-  }
-  return String(Math.max(1, Math.floor(config.emojiCount)));
+/** Resolve an entry's per-slot [min,max] (fixed mode collapses to [v,v]). */
+function slot(
+  entry: import('../types').EmojiEntry,
+  which: 'head' | 'tail' | 'rand',
+): [number, number] {
+  const min = Math.max(0, Math.floor(entry[`${which}Min`]));
+  const max = Math.max(0, Math.floor(entry[`${which}Max`]));
+  return entry.mode === 'fixed' ? [min, min] : [Math.min(min, max), Math.max(min, max)];
 }
 
 /** Per-flag PowerShell variable name and sidecar JSON key. */
@@ -57,42 +57,51 @@ function numLit(p: ParamRange, value: number): string {
   return value.toFixed(p.decimals);
 }
 
-/** PowerShell lines (4-space indented) that compose $Text/$Emoji from $Emojis. */
+/** PowerShell lines defining $Entries + the Get-Cnt helper (emitted once). */
+function psEntriesSetup(config: GenConfig): string[] {
+  if (!emojiEnabled(config)) return [];
+  const L: string[] = [];
+  L.push('function Get-Cnt($a, $b) { $lo = [math]::Min($a, $b); $hi = [math]::Max($a, $b); return (Get-Random -Minimum $lo -Maximum ($hi + 1)) }');
+  L.push('$Entries = @(');
+  L.push(
+    config.emojiEntries
+      .map((e) => {
+        const [hMin, hMax] = slot(e, 'head');
+        const [tMin, tMax] = slot(e, 'tail');
+        const [rMin, rMax] = slot(e, 'rand');
+        return `  [pscustomobject]@{ Token = ${psLit(e.token)}; HMin = ${hMin}; HMax = ${hMax}; TMin = ${tMin}; TMax = ${tMax}; RMin = ${rMin}; RMax = ${rMax} }`;
+      })
+      .join(',\n'),
+  );
+  L.push(')');
+  return L;
+}
+
+/** PowerShell lines (4-space indented) composing $Text/$Emoji per generation. */
 function psEmojiBlock(config: GenConfig): string[] {
   if (!emojiEnabled(config)) {
     return ['    $Emoji = ""', '    $Text = $BaseText'];
   }
-  const pick = '$Emojis[(Get-Random -Maximum $Emojis.Count)]';
-  const L = ['    $Emoji = ""', '    $Text = $BaseText'];
-  switch (config.emojiPlacement) {
-    case 'head':
-      L.push(`    $e = ${pick}`, '    $Emoji = $e', '    $Text = "$e$BaseText"');
-      break;
-    case 'tail':
-      L.push(`    $e = ${pick}`, '    $Emoji = $e', '    $Text = "$BaseText$e"');
-      break;
-    case 'both':
-      L.push(
-        `    $e1 = ${pick}`,
-        `    $e2 = ${pick}`,
-        '    $Emoji = "$e1$e2"',
-        '    $Text = "$e1$BaseText$e2"',
-      );
-      break;
-    case 'random': {
-      L.push(`    $n = ${psEmojiCountExpr(config)}`);
-      L.push(
-        '    for ($k = 0; $k -lt $n; $k++) {',
-        `      $e = ${pick}`,
-        '      $pos = Get-Random -Minimum 0 -Maximum ($Text.Length + 1)',
-        '      $Text = $Text.Substring(0, $pos) + $e + $Text.Substring($pos)',
-        '      $Emoji = "$Emoji$e"',
-        '    }',
-      );
-      break;
-    }
-  }
-  return L;
+  return [
+    '    $Head = ""',
+    '    $Tail = ""',
+    '    $Emoji = ""',
+    '    foreach ($en in $Entries) {',
+    '      $h = Get-Cnt $en.HMin $en.HMax',
+    '      $t = Get-Cnt $en.TMin $en.TMax',
+    '      if ($h -gt 0) { $Head += $en.Token * $h; $Emoji += $en.Token * $h }',
+    '      if ($t -gt 0) { $Tail += $en.Token * $t; $Emoji += $en.Token * $t }',
+    '    }',
+    '    $Text = $Head + $BaseText + $Tail',
+    '    foreach ($en in $Entries) {',
+    '      $r = Get-Cnt $en.RMin $en.RMax',
+    '      for ($k = 0; $k -lt $r; $k++) {',
+    '        $pos = Get-Random -Minimum 0 -Maximum ($Text.Length + 1)',
+    '        $Text = $Text.Substring(0, $pos) + $en.Token + $Text.Substring($pos)',
+    '        $Emoji += $en.Token',
+    '      }',
+    '    }',
+  ];
 }
 
 export function buildPs1(config: GenConfig): string {
@@ -113,11 +122,7 @@ export function buildPs1(config: GenConfig): string {
   L.push('$Texts = @(');
   L.push(texts.map((t) => '  ' + psLit(t)).join(',\n'));
   L.push(')');
-  if (emojiEnabled(config)) {
-    L.push(`$Emojis = @(${config.selectedEmojis.map(psLit).join(', ')})`);
-  } else {
-    L.push('$Emojis = @()');
-  }
+  for (const line of psEntriesSetup(config)) L.push(line);
   L.push(`$Model = ${psLit(config.checkpoint)}`);
   if (config.refMode === 'ref-wav') L.push(`$RefWav = ${psLit(config.refWav)}`);
   if (config.caption.trim()) L.push(`$Caption = ${psLit(config.caption)}`);
@@ -218,31 +223,44 @@ function batSet(name: string, value: string): string {
   return `set "${name}=${safe}"`;
 }
 
+/** Single-quoted PS literal for bat-embedded one-liners. */
+function psLitInline(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
 /** Inline PowerShell (quoted for bat) composing "text|appliedEmoji" from env. */
 function batEmojiComposeCmd(config: GenConfig): string {
-  const parts: string[] = ['$b=$env:TTS_BASETEXT', "$p=$env:TTS_EMOJIS -split ','"];
-  const pick = '$p[(Get-Random -Maximum $p.Count)]';
-  switch (config.emojiPlacement) {
-    case 'head':
-      parts.push(`$e=${pick}`, "Write-Output ($e+$b+'|'+$e)");
-      break;
-    case 'tail':
-      parts.push(`$e=${pick}`, "Write-Output ($b+$e+'|'+$e)");
-      break;
-    case 'both':
-      parts.push(`$e1=${pick}`, `$e2=${pick}`, "Write-Output ($e1+$b+$e2+'|'+$e1+$e2)");
-      break;
-    case 'random': {
-      parts.push(
-        '$t=$b',
-        "$ap=''",
-        `$n=${psEmojiCountExpr(config)}`,
-        `for($k=0;$k -lt $n;$k++){$e=${pick};$pos=Get-Random -Minimum 0 -Maximum ($t.Length+1);$t=$t.Substring(0,$pos)+$e+$t.Substring($pos);$ap+=$e}`,
-        "Write-Output ($t+'|'+$ap)",
-      );
-      break;
-    }
+  const parts: string[] = [
+    '$bs=$env:TTS_BASETEXT',
+    'function gc($a,$b){$l=[math]::Min($a,$b);$h=[math]::Max($a,$b);Get-Random -Minimum $l -Maximum ($h+1)}',
+    "$hd=''",
+    "$tl=''",
+    "$ap=''",
+  ];
+  // Head/tail counts per entry.
+  for (const e of config.emojiEntries) {
+    const tok = psLitInline(e.token);
+    const [hMin, hMax] = slot(e, 'head');
+    const [tMin, tMax] = slot(e, 'tail');
+    parts.push(
+      `$h=gc ${hMin} ${hMax}`,
+      `$t=gc ${tMin} ${tMax}`,
+      `if($h -gt 0){$hd+=(${tok}*$h);$ap+=(${tok}*$h)}`,
+      `if($t -gt 0){$tl+=(${tok}*$t);$ap+=(${tok}*$t)}`,
+    );
   }
+  parts.push('$tx=$hd+$bs+$tl');
+  // Random-position inserts per entry.
+  for (const e of config.emojiEntries) {
+    const tok = psLitInline(e.token);
+    const [rMin, rMax] = slot(e, 'rand');
+    if (rMax <= 0) continue;
+    parts.push(
+      `$r=gc ${rMin} ${rMax}`,
+      `for($k=0;$k -lt $r;$k++){$pos=Get-Random -Minimum 0 -Maximum ($tx.Length+1);$tx=$tx.Substring(0,$pos)+${tok}+$tx.Substring($pos);$ap+=${tok}}`,
+    );
+  }
+  parts.push("Write-Output ($tx+'|'+$ap)");
   return '"' + parts.join(';') + '"';
 }
 
@@ -270,7 +288,6 @@ export function buildBat(config: GenConfig): string {
   L.push('');
   texts.forEach((t, i) => L.push(batSet(`TEXT[${i}]`, t)));
   L.push(`set /a TEXTCOUNT=${texts.length}`);
-  if (useEmoji) L.push(batSet('TTS_EMOJIS', config.selectedEmojis.join(',')));
   L.push(batSet('MODEL', config.checkpoint));
   if (config.refMode === 'ref-wav') L.push(batSet('REFWAV', config.refWav));
   if (config.caption.trim()) L.push(batSet('CAPTION', config.caption));
