@@ -160,6 +160,7 @@ export function CurationPage() {
               <th>steps</th>
               <th>cfg-text</th>
               <th>dur</th>
+              <th>ref</th>
             </tr>
           </thead>
           <tbody>
@@ -196,6 +197,9 @@ export function CurationPage() {
                 <td>{fmt(it.meta?.numSteps)}</td>
                 <td>{fmt(it.meta?.cfgScaleText)}</td>
                 <td>{fmt(it.meta?.durationScale)}</td>
+                <td className="ref" title={it.meta?.refWav ?? ''}>
+                  {it.meta?.refWav ? it.meta.refWav.split(/[/\\]/).pop() : it.meta?.refMode === 'no-ref' ? 'no-ref' : '—'}
+                </td>
               </tr>
             ))}
           </tbody>

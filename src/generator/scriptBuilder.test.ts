@@ -72,6 +72,17 @@ describe('buildPs1', () => {
     expect(r).toContain("$RefWav = 'C:/a/ref.wav'");
   });
 
+  it('records refWav, index, runId and checkpointKind in the sidecar', () => {
+    const r = buildPs1(cfg({ refMode: 'ref-wav', refWav: 'C:/a/ref.wav', checkpointKind: 'local' }));
+    expect(r).toContain('$RunId = (Get-Date).ToString("yyyyMMdd_HHmmss")');
+    expect(r).toContain('refWav = $RefWav');
+    expect(r).toContain('index = $Index');
+    expect(r).toContain('runId = $RunId');
+    expect(r).toContain("checkpointKind = 'local'");
+    // no-ref => refWav null
+    expect(buildPs1(cfg({ refMode: 'no-ref' }))).toContain('refWav = $null');
+  });
+
   it('escapes single quotes in text literals', () => {
     const s = buildPs1(cfg({ texts: "it's me" }));
     expect(s).toContain("'it''s me'");

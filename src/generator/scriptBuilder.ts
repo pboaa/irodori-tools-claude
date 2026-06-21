@@ -126,6 +126,7 @@ export function buildPs1(config: GenConfig): string {
   L.push(`$Model = ${psLit(config.checkpoint)}`);
   if (config.refMode === 'ref-wav') L.push(`$RefWav = ${psLit(config.refWav)}`);
   if (config.caption.trim()) L.push(`$Caption = ${psLit(config.caption)}`);
+  L.push('$RunId = (Get-Date).ToString("yyyyMMdd_HHmmss")');
   L.push('$Index = 0');
   L.push('');
   L.push('foreach ($BaseText in $Texts) {');
@@ -196,7 +197,11 @@ export function buildPs1(config: GenConfig): string {
   L.push('      emoji = if ($Emoji -ne "") { $Emoji } else { $null }');
   L.push(`      caption = ${config.caption.trim() ? '$Caption' : '$null'}`);
   L.push('      model = $Model');
+  L.push(`      checkpointKind = ${psLit(config.checkpointKind)}`);
   L.push(`      refMode = ${psLit(config.refMode)}`);
+  L.push(`      refWav = ${config.refMode === 'ref-wav' ? '$RefWav' : '$null'}`);
+  L.push('      index = $Index');
+  L.push('      runId = $RunId');
   for (const key of ALL_JSON_PARAM_KEYS) {
     const flag = Object.keys(FLAG_INFO).find((f) => FLAG_INFO[f].jsonKey === key)!;
     const isActive = active.some((p) => p.flag === flag);
@@ -291,6 +296,9 @@ export function buildBat(config: GenConfig): string {
   L.push(batSet('MODEL', config.checkpoint));
   if (config.refMode === 'ref-wav') L.push(batSet('REFWAV', config.refWav));
   if (config.caption.trim()) L.push(batSet('CAPTION', config.caption));
+  L.push(
+    'for /f "usebackq delims=" %%r in (`powershell -NoProfile -Command "(Get-Date).ToString(\'yyyyMMdd_HHmmss\')"`) do set "RUNID=%%r"',
+  );
   L.push('set /a INDEX=0');
   L.push('');
   L.push('for /L %%T in (0,1,%TEXTCOUNT%) do (');
@@ -367,6 +375,9 @@ export function buildBat(config: GenConfig): string {
   L.push('      set "TTS_NAME=!NAME!"');
   L.push('      set "TTS_JSON=!JSON!"');
   L.push('      set "TTS_MODEL=%MODEL%"');
+  L.push('      set "TTS_INDEX=!INDEX!"');
+  L.push('      set "TTS_RUNID=%RUNID%"');
+  if (config.refMode === 'ref-wav') L.push('      set "TTS_REFWAV=%REFWAV%"');
   if (config.caption.trim()) L.push('      set "TTS_CAPTION=%CAPTION%"');
   for (const p of active) {
     L.push(`      set "${FLAG_INFO[p.flag].env}=!${FLAG_INFO[p.flag].psVar}!"`);
@@ -392,7 +403,15 @@ function batJsonPsCommand(config: GenConfig, active: ParamRange[]): string {
   parts.push('$m.emoji=if($env:TTS_EMOJI){$env:TTS_EMOJI}else{$null}');
   parts.push(config.caption.trim() ? '$m.caption=$env:TTS_CAPTION' : '$m.caption=$null');
   parts.push('$m.model=$env:TTS_MODEL');
+  parts.push(`$m.checkpointKind='${config.checkpointKind}'`);
   parts.push(`$m.refMode='${config.refMode}'`);
+  parts.push(
+    config.refMode === 'ref-wav'
+      ? '$m.refWav=if($env:TTS_REFWAV){$env:TTS_REFWAV}else{$null}'
+      : '$m.refWav=$null',
+  );
+  parts.push('$m.index=[int]$env:TTS_INDEX');
+  parts.push('$m.runId=$env:TTS_RUNID');
   for (const flag of Object.keys(FLAG_INFO)) {
     const info = FLAG_INFO[flag];
     const p = active.find((a) => a.flag === flag);

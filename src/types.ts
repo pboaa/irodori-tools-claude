@@ -90,7 +90,14 @@ export interface SidecarMeta {
   emoji: string | null;
   caption: string | null;
   model: string;
+  checkpointKind: 'hf' | 'local';
   refMode: RefMode;
+  /** Reference wav path when refMode === 'ref-wav', else null. */
+  refWav: string | null;
+  /** Running sequence number within the batch (1-based). */
+  index: number | null;
+  /** Batch run id (timestamp) shared by all files from one script run. */
+  runId: string;
   seed: number | null;
   numSteps: number | null;
   cfgScaleText: number | null;
