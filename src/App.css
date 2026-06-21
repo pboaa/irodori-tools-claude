@@ -107,7 +107,8 @@ textarea {
 /* 2x2 layout: config | params (right) / emoji (bottom-left) | output (bottom-right). */
 .gen-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* Right column (params/output) wider so range sliders get real width. */
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
   grid-template-areas:
     "config params"
     "emoji  output";
@@ -235,16 +236,19 @@ button.reset:hover {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .slider input[type='range'] {
-  flex: 1;
-  min-width: 180px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   height: 22px;
   accent-color: var(--accent);
   cursor: pointer;
 }
 .slider-num {
-  width: 84px;
+  width: 70px;
   flex: none;
 }
 .param-range-sliders {
@@ -339,6 +343,25 @@ button.reset:hover {
 .entry-del:hover {
   color: var(--reject) !important;
 }
+.symbol-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.symbol-btn {
+  min-width: 34px;
+  background: var(--panel-2) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 8px !important;
+  padding: 5px 9px !important;
+  font-size: 15px;
+  cursor: pointer;
+}
+.symbol-btn:hover {
+  border-color: var(--accent) !important;
+}
 .custom-add {
   display: flex;
   gap: 6px;
@@ -346,6 +369,9 @@ button.reset:hover {
 }
 .custom-add input {
   flex: 1;
+}
+.count-cell select {
+  padding: 3px 4px;
 }
 .emoji-grid {
   display: grid;

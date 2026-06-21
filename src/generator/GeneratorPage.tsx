@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { GenConfig } from '../types';
-import { defaultConfig, defaultParams } from '../lib/defaults';
+import { defaultConfig, defaultParams, resetParams } from '../lib/defaults';
 import { buildPs1, buildBat, splitLines } from './scriptBuilder';
 import { ParamRangeInput } from './ParamRangeInput';
 import { EmojiPicker } from './EmojiPicker';
@@ -115,7 +115,7 @@ export function GeneratorPage() {
       <section className="area-params">
         <div className="section-head">
           <h3>ランダム化パラメータ</h3>
-          <button type="button" className="reset" onClick={() => set({ params: defaultParams() })}>
+          <button type="button" className="reset" onClick={() => set({ params: resetParams() })}>
             ⟲ 全てリセット
           </button>
         </div>

@@ -9,6 +9,8 @@ interface Props {
 }
 
 const LABEL_OF = new Map(EMOJIS.map((e) => [e.emoji, e.label]));
+const COUNT_OPTS = Array.from({ length: 11 }, (_, i) => i); // 0..10
+const SYMBOLS = ['♡', '！', '？', '〜', '♪', '…', '、', '。'];
 
 /** One numeric count cell (single value in fixed mode, min-max in range mode). */
 function CountCell({
@@ -28,33 +30,36 @@ function CountCell({
     <div className="count-cell">
       <span className="count-label">{label}</span>
       {entry.mode === 'fixed' ? (
-        <input
-          type="number"
-          min={0}
-          max={20}
+        <select
           value={entry[minKey]}
           aria-label={`${entry.token} ${label}`}
           onChange={(e) => onPatch({ [minKey]: Number(e.target.value), [maxKey]: Number(e.target.value) })}
-        />
+        >
+          {COUNT_OPTS.map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
       ) : (
         <span className="count-range">
-          <input
-            type="number"
-            min={0}
-            max={20}
+          <select
             value={entry[minKey]}
             aria-label={`${entry.token} ${label} min`}
             onChange={(e) => onPatch({ [minKey]: Number(e.target.value) })}
-          />
+          >
+            {COUNT_OPTS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
           <span>〜</span>
-          <input
-            type="number"
-            min={0}
-            max={20}
+          <select
             value={entry[maxKey]}
             aria-label={`${entry.token} ${label} max`}
             onChange={(e) => onPatch({ [maxKey]: Number(e.target.value) })}
-          />
+          >
+            {COUNT_OPTS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
         </span>
       )}
     </div>
@@ -100,6 +105,14 @@ export function EmojiPicker({ entries, onChange }: Props) {
               ✕
             </button>
           </div>
+        ))}
+      </div>
+
+      <div className="symbol-row">
+        {SYMBOLS.map((sym) => (
+          <button type="button" key={sym} className="symbol-btn" onClick={() => add(sym)}>
+            {sym}
+          </button>
         ))}
       </div>
 
