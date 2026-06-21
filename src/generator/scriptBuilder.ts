@@ -8,17 +8,14 @@ export function splitLines(text: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-/** Split an emoji pool (comma or newline separated) into entries. */
-export function splitEmojis(pool: string): string[] {
-  return pool
-    .split(/[\n,]/)
-    .map((e) => e.trim())
-    .filter((e) => e.length > 0);
-}
-
 /** Active (non-"off") params only. */
 function activeParams(config: GenConfig): ParamRange[] {
   return config.params.filter((p) => p.kind !== 'off');
+}
+
+/** Whether emoji injection is enabled. */
+function emojiEnabled(config: GenConfig): boolean {
+  return config.emojiPlacement !== 'off' && config.selectedEmojis.length > 0;
 }
 
 /** Per-flag PowerShell variable name and sidecar JSON key. */
@@ -50,9 +47,46 @@ function numLit(p: ParamRange, value: number): string {
   return value.toFixed(p.decimals);
 }
 
+/** PowerShell lines (4-space indented) that compose $Text/$Emoji from $Emojis. */
+function psEmojiBlock(config: GenConfig): string[] {
+  if (!emojiEnabled(config)) {
+    return ['    $Emoji = ""', '    $Text = $BaseText'];
+  }
+  const pick = '$Emojis[(Get-Random -Maximum $Emojis.Count)]';
+  const L = ['    $Emoji = ""', '    $Text = $BaseText'];
+  switch (config.emojiPlacement) {
+    case 'head':
+      L.push(`    $e = ${pick}`, '    $Emoji = $e', '    $Text = "$e$BaseText"');
+      break;
+    case 'tail':
+      L.push(`    $e = ${pick}`, '    $Emoji = $e', '    $Text = "$BaseText$e"');
+      break;
+    case 'both':
+      L.push(
+        `    $e1 = ${pick}`,
+        `    $e2 = ${pick}`,
+        '    $Emoji = "$e1$e2"',
+        '    $Text = "$e1$BaseText$e2"',
+      );
+      break;
+    case 'random': {
+      const n = Math.max(1, Math.floor(config.emojiRandomCount));
+      L.push(
+        `    for ($k = 0; $k -lt ${n}; $k++) {`,
+        `      $e = ${pick}`,
+        '      $pos = Get-Random -Minimum 0 -Maximum ($Text.Length + 1)',
+        '      $Text = $Text.Substring(0, $pos) + $e + $Text.Substring($pos)',
+        '      $Emoji = "$Emoji$e"',
+        '    }',
+      );
+      break;
+    }
+  }
+  return L;
+}
+
 export function buildPs1(config: GenConfig): string {
   const active = activeParams(config);
-  const emojis = config.appendEmoji ? splitEmojis(config.emojiPool) : [];
   const texts = splitLines(config.texts);
   const checkpointFlag = config.checkpointKind === 'hf' ? '--hf-checkpoint' : '--checkpoint';
 
@@ -69,8 +103,8 @@ export function buildPs1(config: GenConfig): string {
   L.push('$Texts = @(');
   L.push(texts.map((t) => '  ' + psLit(t)).join(',\n'));
   L.push(')');
-  if (emojis.length > 0) {
-    L.push(`$Emojis = @(${emojis.map(psLit).join(', ')})`);
+  if (emojiEnabled(config)) {
+    L.push(`$Emojis = @(${config.selectedEmojis.map(psLit).join(', ')})`);
   } else {
     L.push('$Emojis = @()');
   }
@@ -103,12 +137,7 @@ export function buildPs1(config: GenConfig): string {
   }
 
   // Emoji + composed text.
-  L.push('    $Emoji = ""');
-  L.push('    $Text = $BaseText');
-  L.push('    if ($Emojis.Count -gt 0) {');
-  L.push('      $Emoji = $Emojis[(Get-Random -Maximum $Emojis.Count)]');
-  L.push('      $Text = "$BaseText$Emoji"');
-  L.push('    }');
+  for (const line of psEmojiBlock(config)) L.push(line);
 
   // Output names.
   const hasSeed = active.some((p) => p.flag === 'seed');
@@ -173,24 +202,52 @@ export function buildPs1(config: GenConfig): string {
 // Batch (.bat)
 // ---------------------------------------------------------------------------
 
-/** Escape for a cmd `set "VAR=..."` value (caret-escape special chars). */
+/** Escape for a cmd `set "VAR=..."` value. */
 function batSet(name: string, value: string): string {
-  // Inside set "X=...", most chars are literal; quotes are the main concern.
   const safe = value.replace(/"/g, '""');
   return `set "${name}=${safe}"`;
 }
 
+/** Inline PowerShell (quoted for bat) composing "text|appliedEmoji" from env. */
+function batEmojiComposeCmd(config: GenConfig): string {
+  const parts: string[] = ['$b=$env:TTS_BASETEXT', "$p=$env:TTS_EMOJIS -split ','"];
+  const pick = '$p[(Get-Random -Maximum $p.Count)]';
+  switch (config.emojiPlacement) {
+    case 'head':
+      parts.push(`$e=${pick}`, "Write-Output ($e+$b+'|'+$e)");
+      break;
+    case 'tail':
+      parts.push(`$e=${pick}`, "Write-Output ($b+$e+'|'+$e)");
+      break;
+    case 'both':
+      parts.push(`$e1=${pick}`, `$e2=${pick}`, "Write-Output ($e1+$b+$e2+'|'+$e1+$e2)");
+      break;
+    case 'random': {
+      const n = Math.max(1, Math.floor(config.emojiRandomCount));
+      parts.push(
+        '$t=$b',
+        "$ap=''",
+        `for($k=0;$k -lt ${n};$k++){$e=${pick};$pos=Get-Random -Minimum 0 -Maximum ($t.Length+1);$t=$t.Substring(0,$pos)+$e+$t.Substring($pos);$ap+=$e}`,
+        "Write-Output ($t+'|'+$ap)",
+      );
+      break;
+    }
+  }
+  return '"' + parts.join(';') + '"';
+}
+
 /**
- * Build a standalone .bat. Integer params use %RANDOM%; float params and the
- * JSON sidecar are delegated to inline PowerShell (values passed via env vars
- * to avoid cmd quoting/encoding pitfalls with Japanese text + emoji).
+ * Build a standalone .bat. Integer params use %RANDOM%; float params, emoji
+ * composition, and the JSON sidecar are delegated to inline PowerShell (values
+ * passed via env vars to avoid cmd quoting/encoding pitfalls with Japanese
+ * text + emoji).
  */
 export function buildBat(config: GenConfig): string {
   const active = activeParams(config);
-  const emojis = config.appendEmoji ? splitEmojis(config.emojiPool) : [];
   const texts = splitLines(config.texts);
   const checkpointFlag = config.checkpointKind === 'hf' ? '--hf-checkpoint' : '--checkpoint';
   const count = Math.max(1, Math.floor(config.count));
+  const useEmoji = emojiEnabled(config);
 
   const L: string[] = [];
   L.push('@echo off');
@@ -203,8 +260,7 @@ export function buildBat(config: GenConfig): string {
   L.push('');
   texts.forEach((t, i) => L.push(batSet(`TEXT[${i}]`, t)));
   L.push(`set /a TEXTCOUNT=${texts.length}`);
-  emojis.forEach((e, i) => L.push(batSet(`EMOJI[${i}]`, e)));
-  L.push(`set /a EMOJICOUNT=${emojis.length}`);
+  if (useEmoji) L.push(batSet('TTS_EMOJIS', config.selectedEmojis.join(',')));
   L.push(batSet('MODEL', config.checkpoint));
   if (config.refMode === 'ref-wav') L.push(batSet('REFWAV', config.refWav));
   if (config.caption.trim()) L.push(batSet('CAPTION', config.caption));
@@ -227,7 +283,6 @@ export function buildBat(config: GenConfig): string {
     if (p.kind === 'fixed') {
       L.push(`      set /a ${info.psVar}=${Math.round(p.fixed)}`);
     } else if (span > 32768) {
-      // Wide range (e.g. seed): combine two RANDOM draws.
       L.push(`      set /a ${info.psVar}=(!RANDOM!*32768+!RANDOM!) %% ${span} + ${Math.round(p.min)}`);
     } else {
       L.push(`      set /a ${info.psVar}=!RANDOM! %% ${span} + ${Math.round(p.min)}`);
@@ -238,10 +293,8 @@ export function buildBat(config: GenConfig): string {
   for (const p of active) {
     if (p.type !== 'float') continue;
     const info = FLAG_INFO[p.flag];
-    let expr: string;
     if (p.kind === 'fixed') {
-      expr = p.fixed.toFixed(p.decimals);
-      L.push(`      set "${info.psVar}=${expr}"`);
+      L.push(`      set "${info.psVar}=${p.fixed.toFixed(p.decimals)}"`);
     } else {
       const psExpr = `[math]::Round((${p.min.toFixed(p.decimals)} + (Get-Random -Maximum 10001)/10000 * (${p.max.toFixed(p.decimals)} - ${p.min.toFixed(p.decimals)})),${p.decimals}).ToString([Globalization.CultureInfo]::InvariantCulture)`;
       L.push(
@@ -250,14 +303,15 @@ export function buildBat(config: GenConfig): string {
     }
   }
 
-  // Emoji selection.
+  // Emoji composition (text + applied emoji) via PowerShell.
   L.push('      set "EMOJI="');
   L.push('      set "TTS_TEXT=!BASETEXT!"');
-  L.push('      if !EMOJICOUNT! gtr 0 (');
-  L.push('        set /a EI=!RANDOM! %% !EMOJICOUNT!');
-  L.push('        for /f %%e in ("!EI!") do set "EMOJI=!EMOJI[%%e]!"');
-  L.push('        set "TTS_TEXT=!BASETEXT!!EMOJI!"');
-  L.push('      )');
+  if (useEmoji) {
+    L.push('      set "TTS_BASETEXT=!BASETEXT!"');
+    L.push(
+      `      for /f "usebackq tokens=1,2 delims=|" %%a in (\`powershell -NoProfile -Command ${batEmojiComposeCmd(config)}\`) do (set "TTS_TEXT=%%a" & set "EMOJI=%%b")`,
+    );
+  }
   L.push('');
 
   // Names.
@@ -303,12 +357,12 @@ export function buildBat(config: GenConfig): string {
 /** PowerShell one-liner (quoted for bat) that writes the sidecar JSON from env vars. */
 function batJsonPsCommand(config: GenConfig, active: ParamRange[]): string {
   const parts: string[] = [];
-  parts.push("$m=[ordered]@{}");
+  parts.push('$m=[ordered]@{}');
   parts.push("$m.schema='irodori-tts-sidecar/v1'");
   parts.push("$m.wav=$env:TTS_NAME+'.wav'");
   parts.push('$m.text=$env:TTS_TEXT');
   parts.push('$m.baseText=$env:TTS_BASETEXT');
-  parts.push("$m.emoji=if($env:TTS_EMOJI){$env:TTS_EMOJI}else{$null}");
+  parts.push('$m.emoji=if($env:TTS_EMOJI){$env:TTS_EMOJI}else{$null}');
   parts.push(config.caption.trim() ? '$m.caption=$env:TTS_CAPTION' : '$m.caption=$null');
   parts.push('$m.model=$env:TTS_MODEL');
   parts.push(`$m.refMode='${config.refMode}'`);
@@ -326,6 +380,5 @@ function batJsonPsCommand(config: GenConfig, active: ParamRange[]): string {
   parts.push("$m.createdAt=(Get-Date).ToUniversalTime().ToString('o')");
   parts.push("$m.command=''");
   parts.push('($m|ConvertTo-Json -Depth 5)|Set-Content -Path $env:TTS_JSON -Encoding UTF8');
-  // Wrap whole script in double quotes for cmd; internal double-quote-free.
   return '"' + parts.join(';') + '"';
 }

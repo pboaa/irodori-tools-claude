@@ -22,9 +22,21 @@ export interface ParamRange {
   max: number;
   /** Decimal places for float rounding. */
   decimals: number;
+  /** Whether to render slider controls (false => number inputs, e.g. seed). */
+  slider: boolean;
+  /** Absolute slider track bounds. */
+  sliderMin: number;
+  sliderMax: number;
+  /** Slider step ("刻み"). */
+  step: number;
+  /** Factory default value (reset target). */
+  default: number;
 }
 
 export type RefMode = 'no-ref' | 'ref-wav';
+
+/** Where to inject emojis into each text. */
+export type EmojiPlacement = 'off' | 'head' | 'tail' | 'both' | 'random';
 
 /** Full generator configuration that drives script building. */
 export interface GenConfig {
@@ -38,9 +50,11 @@ export interface GenConfig {
   caption: string;
   refMode: RefMode;
   refWav: string;
-  /** Emoji pool (comma/newline separated). */
-  emojiPool: string;
-  appendEmoji: boolean;
+  /** Emojis chosen from the supported set. */
+  selectedEmojis: string[];
+  emojiPlacement: EmojiPlacement;
+  /** Number of emojis inserted when placement === 'random'. */
+  emojiRandomCount: number;
   /** Generations per text line. */
   count: number;
   /** Output directory the scripts create and write into. */

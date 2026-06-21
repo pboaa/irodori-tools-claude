@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react';
-import type { GenConfig } from '../types';
-import { defaultConfig } from '../lib/defaults';
+import type { GenConfig, EmojiPlacement } from '../types';
+import { defaultConfig, defaultParams } from '../lib/defaults';
 import { buildPs1, buildBat, splitLines } from './scriptBuilder';
 import { ParamRangeInput } from './ParamRangeInput';
+import { EmojiPicker } from './EmojiPicker';
+
+const FACTORY_PARAMS = defaultParams();
 
 function download(filename: string, text: string) {
   // Windows PowerShell 5.1 reads BOM-less UTF-8 .ps1 as ANSI (corrupts 日本語/絵文字),
@@ -113,30 +116,58 @@ export function GeneratorPage() {
         </section>
 
         <section>
-          <h3>絵文字</h3>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={config.appendEmoji}
-              onChange={(e) => set({ appendEmoji: e.target.checked })}
-            />
-            各生成でプールから1つランダムに末尾付与
-          </label>
-          <textarea
-            rows={2}
-            placeholder="🤭, 😊, 😢 （カンマ/改行区切り）"
-            value={config.emojiPool}
-            disabled={!config.appendEmoji}
-            onChange={(e) => set({ emojiPool: e.target.value })}
+          <h3>絵文字（スタイル制御）</h3>
+          <div className="inline">
+            <label className="field">
+              付与位置
+              <select
+                value={config.emojiPlacement}
+                onChange={(e) => set({ emojiPlacement: e.target.value as EmojiPlacement })}
+              >
+                <option value="off">付与しない</option>
+                <option value="head">文頭</option>
+                <option value="tail">文末</option>
+                <option value="both">文頭＋文末</option>
+                <option value="random">ランダム位置に複数</option>
+              </select>
+            </label>
+            {config.emojiPlacement === 'random' && (
+              <label className="field">
+                付与数
+                <input
+                  type="number"
+                  min={1}
+                  value={config.emojiRandomCount}
+                  onChange={(e) => set({ emojiRandomCount: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <p className="param-hint">
+            選択した絵文字から各生成でランダムに選ばれます（効果はホバーで表示）。
+          </p>
+          <EmojiPicker
+            selected={config.selectedEmojis}
+            onChange={(selectedEmojis) => set({ selectedEmojis })}
           />
         </section>
 
         <section>
-          <h3>ランダム化パラメータ</h3>
+          <div className="section-head">
+            <h3>ランダム化パラメータ</h3>
+            <button
+              type="button"
+              className="reset"
+              onClick={() => set({ params: defaultParams() })}
+            >
+              ⟲ 全てリセット
+            </button>
+          </div>
           {config.params.map((p, i) => (
             <ParamRangeInput
               key={p.flag}
               param={p}
+              factory={FACTORY_PARAMS[i]}
               onChange={(next) =>
                 set({ params: config.params.map((q, j) => (i === j ? next : q)) })
               }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPs1, buildBat, splitLines, splitEmojis } from './scriptBuilder';
+import { buildPs1, buildBat, splitLines } from './scriptBuilder';
 import { defaultConfig } from '../lib/defaults';
 import type { GenConfig } from '../types';
 
@@ -10,9 +10,6 @@ function cfg(overrides: Partial<GenConfig> = {}): GenConfig {
 describe('helpers', () => {
   it('splitLines drops blanks and trims', () => {
     expect(splitLines('a\n\n  b  \nc')).toEqual(['a', 'b', 'c']);
-  });
-  it('splitEmojis handles commas and newlines', () => {
-    expect(splitEmojis('🤭, 😊\n😢')).toEqual(['🤭', '😊', '😢']);
   });
 });
 
@@ -74,10 +71,22 @@ describe('buildPs1', () => {
     expect(s).toContain("'it''s me'");
   });
 
-  it('appends emoji array only when enabled', () => {
-    expect(buildPs1(cfg({ appendEmoji: false }))).toContain('$Emojis = @()');
-    const s = buildPs1(cfg({ appendEmoji: true, emojiPool: '🤭,😊' }));
-    expect(s).toContain("$Emojis = @('🤭', '😊')");
+  it('emits empty emoji array when placement off', () => {
+    expect(buildPs1(cfg({ emojiPlacement: 'off', selectedEmojis: ['🤭'] }))).toContain('$Emojis = @()');
+  });
+
+  it('composes emoji at head/tail/both', () => {
+    const head = buildPs1(cfg({ emojiPlacement: 'head', selectedEmojis: ['🤭', '😊'] }));
+    expect(head).toContain("$Emojis = @('🤭', '😊')");
+    expect(head).toContain('$Text = "$e$BaseText"');
+    expect(buildPs1(cfg({ emojiPlacement: 'tail', selectedEmojis: ['🤭'] }))).toContain('$Text = "$BaseText$e"');
+    expect(buildPs1(cfg({ emojiPlacement: 'both', selectedEmojis: ['🤭'] }))).toContain('$Text = "$e1$BaseText$e2"');
+  });
+
+  it('inserts N random emojis for random placement', () => {
+    const s = buildPs1(cfg({ emojiPlacement: 'random', emojiRandomCount: 3, selectedEmojis: ['🤭'] }));
+    expect(s).toContain('for ($k = 0; $k -lt 3; $k++)');
+    expect(s).toContain('$Text.Substring(0, $pos) + $e + $Text.Substring($pos)');
   });
 });
 
@@ -110,6 +119,14 @@ describe('buildBat', () => {
     );
     const s = buildBat(c);
     expect(s).toContain('!RANDOM!*32768+!RANDOM!');
+  });
+
+  it('delegates emoji composition to powershell when enabled', () => {
+    const s = buildBat(cfg({ emojiPlacement: 'tail', selectedEmojis: ['🤭', '😊'] }));
+    expect(s).toContain('set "TTS_EMOJIS=🤭,😊"');
+    expect(s).toContain('tokens=1,2 delims=|');
+    const off = buildBat(cfg({ emojiPlacement: 'off' }));
+    expect(off).not.toContain('TTS_EMOJIS');
   });
 
   it('writes JSON via powershell reading env vars', () => {
