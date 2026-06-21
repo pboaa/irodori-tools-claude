@@ -106,7 +106,8 @@ textarea {
 /* ---- Generator ---- */
 .generator {
   display: grid;
-  grid-template-columns: minmax(360px, 460px) 1fr;
+  /* Wide config (room for sliders) on the left, compact preview on the right. */
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
   gap: 16px;
   align-items: start;
 }
@@ -202,23 +203,32 @@ button.reset:hover {
 .slider {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 .slider input[type='range'] {
   flex: 1;
+  min-width: 180px;
+  height: 22px;
   accent-color: var(--accent);
+  cursor: pointer;
 }
 .slider-num {
-  width: 78px;
+  width: 84px;
+  flex: none;
+}
+.param-range-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .range-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: 10px;
 }
 .range-tag {
-  width: 30px;
+  width: 32px;
+  flex: none;
   font-size: 11px;
   color: var(--muted);
 }
@@ -314,13 +324,14 @@ button.reset:hover {
   background: #0f1012;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 14px;
+  padding: 10px 12px;
   overflow: auto;
-  max-height: calc(100vh - 140px);
+  max-height: calc(100vh - 160px);
   font-family: ui-monospace, "Cascadia Code", monospace;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 10.5px;
+  line-height: 1.4;
   white-space: pre;
+  tab-size: 2;
 }
 
 /* ---- Curation ---- */
