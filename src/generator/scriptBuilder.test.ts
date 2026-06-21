@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPs1, buildBat, splitLines } from './scriptBuilder';
+import { buildPs1, buildBat, splitLines, textFolderName, stripEmoji } from './scriptBuilder';
 import { defaultConfig, makeEntry } from '../lib/defaults';
 import type { EmojiEntry, GenConfig } from '../types';
 
@@ -14,6 +14,38 @@ function entry(token: string, p: Partial<EmojiEntry> = {}): EmojiEntry {
 describe('helpers', () => {
   it('splitLines drops blanks and trims', () => {
     expect(splitLines('a\n\n  b  \nc')).toEqual(['a', 'b', 'c']);
+  });
+  it('stripEmoji removes emojis but keeps text', () => {
+    expect(stripEmoji('こんにちは🤭！')).toBe('こんにちは！');
+  });
+  it('textFolderName sanitizes and removes emojis', () => {
+    expect(textFolderName('こんにちは🤭、私はAIです。', 'x')).toBe('こんにちは、私はAIです。');
+    expect(textFolderName('a/b:c*?', 'x')).toBe('abc');
+    expect(textFolderName('   ', 'fallback')).toBe('fallback');
+  });
+});
+
+describe('output folders', () => {
+  it('PS nests run id then per-text folders', () => {
+    const s = buildPs1(cfg({ texts: 'やあ\nどうも' }));
+    expect(s).toContain('$RunId = (Get-Date).ToString("yyyyMMdd_HHmmss")');
+    expect(s).toContain('$RunDir = Join-Path $OutDir $RunId');
+    expect(s).toContain('$TextFolders = @(');
+    expect(s).toContain("'やあ'");
+    expect(s).toContain('$TextDir = Join-Path $RunDir $TextFolders[$ti]');
+    expect(s).toContain('$Wav = Join-Path $TextDir "$Name.wav"');
+  });
+  it('de-duplicates folders that collapse to the same name', () => {
+    // both lines strip to "ねえ" -> second becomes ねえ_2
+    const s = buildPs1(cfg({ texts: 'ねえ🤭\nねえ😊' }));
+    expect(s).toContain("'ねえ'");
+    expect(s).toContain("'ねえ_2'");
+  });
+  it('bat builds run/text dirs', () => {
+    const s = buildBat(cfg({ texts: 'やあ' }));
+    expect(s).toContain('set "RUNDIR=%OUTDIR%\\%RUNID%"');
+    expect(s).toContain('set "TEXTDIR=%RUNDIR%\\!TEXTFOLDER[%%T]!"');
+    expect(s).toContain('set "WAV=!TEXTDIR!\\!NAME!.wav"');
   });
 });
 

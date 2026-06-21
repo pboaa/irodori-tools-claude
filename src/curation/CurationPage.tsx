@@ -164,8 +164,24 @@ export function CurationPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((it, i) => (
-              <tr
+            {filtered.map((it, i) => {
+              const dir = it.relPath.includes('/')
+                ? it.relPath.slice(0, it.relPath.lastIndexOf('/'))
+                : '(ルート)';
+              const prevDir =
+                i > 0 && filtered[i - 1].relPath.includes('/')
+                  ? filtered[i - 1].relPath.slice(0, filtered[i - 1].relPath.lastIndexOf('/'))
+                  : i > 0
+                    ? '(ルート)'
+                    : null;
+              const showGroup = dir !== prevDir;
+              return [
+                showGroup && (
+                  <tr key={`g-${it.id}`} className="group">
+                    <td colSpan={9}>📁 {dir}</td>
+                  </tr>
+                ),
+                (<tr
                 key={it.id}
                 className={`${i === selected ? 'sel' : ''} ${it.status}`}
                 onClick={() => setSelected(i)}
@@ -200,8 +216,9 @@ export function CurationPage() {
                 <td className="ref" title={it.meta?.refWav ?? ''}>
                   {it.meta?.refWav ? it.meta.refWav.split(/[/\\]/).pop() : it.meta?.refMode === 'no-ref' ? 'no-ref' : '—'}
                 </td>
-              </tr>
-            ))}
+              </tr>),
+              ];
+            })}
           </tbody>
         </table>
         {root && !scanning && filtered.length === 0 && (

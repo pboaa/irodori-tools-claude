@@ -13,6 +13,37 @@ function activeParams(config: GenConfig): ParamRange[] {
   return config.params.filter((p) => p.kind !== 'off');
 }
 
+/** Remove emoji / pictograph / decorative-symbol characters. */
+export function stripEmoji(s: string): string {
+  return s.replace(
+    /[\u{1F000}-\u{1FAFF}\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\uFE0F\u200D]/gu,
+    '',
+  );
+}
+
+/** Make a filesystem-safe folder name from a text line (emojis removed). */
+export function textFolderName(text: string, fallback: string): string {
+  let f = stripEmoji(text);
+  f = f.replace(/[\\/:*?"<>|]/g, ''); // Windows-invalid chars
+  // eslint-disable-next-line no-control-regex
+  f = f.replace(/[\u0000-\u001f]/g, ''); // control chars
+  f = f.replace(/\s+/g, '_'); // whitespace -> underscore
+  f = f.replace(/^[_.\s]+|[_.\s]+$/g, ''); // no leading/trailing
+  f = f.slice(0, 40).replace(/[_.\s]+$/g, '');
+  return f || fallback;
+}
+
+/** Folder name per text line, de-duplicated with numeric suffixes. */
+function computeTextFolders(texts: string[]): string[] {
+  const seen = new Map<string, number>();
+  return texts.map((t, i) => {
+    const name = textFolderName(t, `text${i + 1}`);
+    const n = seen.get(name) ?? 0;
+    seen.set(name, n + 1);
+    return n === 0 ? name : `${name}_${n + 1}`;
+  });
+}
+
 /** Whether any emoji injection is configured. */
 function emojiEnabled(config: GenConfig): boolean {
   return config.emojiEntries.length > 0;
@@ -107,6 +138,7 @@ function psEmojiBlock(config: GenConfig): string[] {
 export function buildPs1(config: GenConfig): string {
   const active = activeParams(config);
   const texts = splitLines(config.texts);
+  const folders = computeTextFolders(texts);
   const checkpointFlag = config.checkpointKind === 'hf' ? '--hf-checkpoint' : '--checkpoint';
 
   const L: string[] = [];
@@ -122,14 +154,23 @@ export function buildPs1(config: GenConfig): string {
   L.push('$Texts = @(');
   L.push(texts.map((t) => '  ' + psLit(t)).join(',\n'));
   L.push(')');
+  L.push('$TextFolders = @(');
+  L.push(folders.map((f) => '  ' + psLit(f)).join(',\n'));
+  L.push(')');
   for (const line of psEntriesSetup(config)) L.push(line);
   L.push(`$Model = ${psLit(config.checkpoint)}`);
   if (config.refMode === 'ref-wav') L.push(`$RefWav = ${psLit(config.refWav)}`);
   if (config.caption.trim()) L.push(`$Caption = ${psLit(config.caption)}`);
   L.push('$RunId = (Get-Date).ToString("yyyyMMdd_HHmmss")');
+  // Each run gets its own folder; each text gets a subfolder under it.
+  L.push('$RunDir = Join-Path $OutDir $RunId');
+  L.push('New-Item -ItemType Directory -Force -Path $RunDir | Out-Null');
   L.push('$Index = 0');
   L.push('');
-  L.push('foreach ($BaseText in $Texts) {');
+  L.push('for ($ti = 0; $ti -lt $Texts.Count; $ti++) {');
+  L.push('  $BaseText = $Texts[$ti]');
+  L.push('  $TextDir = Join-Path $RunDir $TextFolders[$ti]');
+  L.push('  New-Item -ItemType Directory -Force -Path $TextDir | Out-Null');
   L.push(`  for ($i = 0; $i -lt ${Math.max(1, Math.floor(config.count))}; $i++) {`);
   L.push('    $Index++');
 
@@ -162,8 +203,8 @@ export function buildPs1(config: GenConfig): string {
   } else {
     L.push('    $Name = ("{0:D4}" -f $Index)');
   }
-  L.push('    $Wav = Join-Path $OutDir "$Name.wav"');
-  L.push('    $Json = Join-Path $OutDir "$Name.json"');
+  L.push('    $Wav = Join-Path $TextDir "$Name.wav"');
+  L.push('    $Json = Join-Path $TextDir "$Name.json"');
   L.push('');
 
   // Build args array.
@@ -213,7 +254,7 @@ export function buildPs1(config: GenConfig): string {
   L.push('    $Meta | ConvertTo-Json -Depth 5 | Set-Content -Path $Json -Encoding UTF8');
   L.push('  }');
   L.push('}');
-  L.push('Write-Host "Done. $Index file(s) written to $OutDir"');
+  L.push('Write-Host "Done. $Index file(s) written to $RunDir"');
   L.push('');
   return L.join('\n');
 }
@@ -278,6 +319,7 @@ function batEmojiComposeCmd(config: GenConfig): string {
 export function buildBat(config: GenConfig): string {
   const active = activeParams(config);
   const texts = splitLines(config.texts);
+  const folders = computeTextFolders(texts);
   const checkpointFlag = config.checkpointKind === 'hf' ? '--hf-checkpoint' : '--checkpoint';
   const count = Math.max(1, Math.floor(config.count));
   const useEmoji = emojiEnabled(config);
@@ -292,6 +334,7 @@ export function buildBat(config: GenConfig): string {
   L.push('if not exist "%OUTDIR%" mkdir "%OUTDIR%"');
   L.push('');
   texts.forEach((t, i) => L.push(batSet(`TEXT[${i}]`, t)));
+  folders.forEach((f, i) => L.push(batSet(`TEXTFOLDER[${i}]`, f)));
   L.push(`set /a TEXTCOUNT=${texts.length}`);
   L.push(batSet('MODEL', config.checkpoint));
   if (config.refMode === 'ref-wav') L.push(batSet('REFWAV', config.refWav));
@@ -299,11 +342,16 @@ export function buildBat(config: GenConfig): string {
   L.push(
     'for /f "usebackq delims=" %%r in (`powershell -NoProfile -Command "(Get-Date).ToString(\'yyyyMMdd_HHmmss\')"`) do set "RUNID=%%r"',
   );
+  // Each run gets its own folder; each text gets a subfolder under it.
+  L.push('set "RUNDIR=%OUTDIR%\\%RUNID%"');
+  L.push('if not exist "%RUNDIR%" mkdir "%RUNDIR%"');
   L.push('set /a INDEX=0');
   L.push('');
   L.push('for /L %%T in (0,1,%TEXTCOUNT%) do (');
   L.push('  if %%T lss %TEXTCOUNT% (');
   L.push('    set "BASETEXT=!TEXT[%%T]!"');
+  L.push('    set "TEXTDIR=%RUNDIR%\\!TEXTFOLDER[%%T]!"');
+  L.push('    if not exist "!TEXTDIR!" mkdir "!TEXTDIR!"');
   L.push(`    for /L %%I in (1,1,${count}) do (`);
   L.push('      set /a INDEX+=1');
   L.push('      set /a IDXPAD=10000+!INDEX!');
@@ -352,8 +400,8 @@ export function buildBat(config: GenConfig): string {
   // Names.
   const hasSeed = active.some((p) => p.flag === 'seed');
   L.push(hasSeed ? '      set "NAME=!IDXSTR!_!Seed!"' : '      set "NAME=!IDXSTR!"');
-  L.push('      set "WAV=%OUTDIR%\\!NAME!.wav"');
-  L.push('      set "JSON=%OUTDIR%\\!NAME!.json"');
+  L.push('      set "WAV=!TEXTDIR!\\!NAME!.wav"');
+  L.push('      set "JSON=!TEXTDIR!\\!NAME!.json"');
   L.push('');
 
   // infer.py invocation.
@@ -386,7 +434,7 @@ export function buildBat(config: GenConfig): string {
   L.push('    )');
   L.push('  )');
   L.push(')');
-  L.push('echo Done. !INDEX! file(s) written to %OUTDIR%');
+  L.push('echo Done. !INDEX! file(s) written to %RUNDIR%');
   L.push('endlocal');
   L.push('');
   return L.join('\n');
