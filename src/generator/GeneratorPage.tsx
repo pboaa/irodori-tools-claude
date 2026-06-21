@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GenConfig } from '../types';
 import { defaultConfig, defaultParams, resetParams } from '../lib/defaults';
 import { buildPs1, buildBat, buildPy, splitLines } from './scriptBuilder';
@@ -7,6 +7,26 @@ import { EmojiPicker } from './EmojiPicker';
 import { TokenPalette } from './TokenPalette';
 
 const FACTORY_PARAMS = defaultParams();
+const STORAGE_KEY = 'irodori-tts-gen-config-v1';
+
+/** Load persisted config, merged over defaults to tolerate schema additions. */
+function loadConfig(): GenConfig {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const stored = JSON.parse(raw) as Partial<GenConfig>;
+      const merged: GenConfig = { ...defaultConfig(), ...stored };
+      if (!Array.isArray(merged.params) || merged.params.length !== FACTORY_PARAMS.length) {
+        merged.params = defaultParams();
+      }
+      if (!Array.isArray(merged.emojiEntries)) merged.emojiEntries = defaultConfig().emojiEntries;
+      return merged;
+    }
+  } catch {
+    /* ignore malformed storage */
+  }
+  return defaultConfig();
+}
 const N_OPTIONS = [1, 2, 3, 4, 5, 8, 10, 15, 20, 30, 50, 100];
 
 function download(filename: string, text: string) {
@@ -23,13 +43,39 @@ function download(filename: string, text: string) {
 }
 
 export function GeneratorPage() {
-  const [config, setConfig] = useState<GenConfig>(defaultConfig);
+  const [config, setConfig] = useState<GenConfig>(loadConfig);
   const [tab, setTab] = useState<'py' | 'ps1' | 'bat'>('py');
   const [copied, setCopied] = useState(false);
   const [showScript, setShowScript] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const set = (patch: Partial<GenConfig>) => setConfig((c) => ({ ...c, ...patch }));
+
+  // Persist config across reloads.
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [config]);
+
+  // Per-section reset helpers (use a fresh default each time).
+  const resetRun = () => {
+    const d = defaultConfig();
+    set({
+      runPrefix: d.runPrefix,
+      checkpointKind: d.checkpointKind,
+      checkpoint: d.checkpoint,
+      precision: d.precision,
+      outputDir: d.outputDir,
+    });
+  };
+  const resetText = () => {
+    const d = defaultConfig();
+    set({ texts: d.texts, caption: d.caption, refMode: d.refMode, refWav: d.refWav, count: d.count });
+  };
+  const resetEmoji = () => set({ emojiEntries: defaultConfig().emojiEntries });
 
   const ps1 = useMemo(() => buildPs1(config), [config]);
   const bat = useMemo(() => buildBat(config), [config]);
@@ -67,7 +113,10 @@ export function GeneratorPage() {
       {/* left column */}
       <div className="area-config">
         <section>
-          <h3>実行設定</h3>
+          <div className="section-head">
+            <h3>実行設定</h3>
+            <button className="reset" title="この設定をリセット" onClick={resetRun}>⟲</button>
+          </div>
           <label className="field">
             実行プレフィックス
             <input value={config.runPrefix} onChange={(e) => set({ runPrefix: e.target.value })} />
@@ -105,7 +154,10 @@ export function GeneratorPage() {
         </section>
 
         <section>
-          <h3>テキスト（1行 = 1テキスト）</h3>
+          <div className="section-head">
+            <h3>テキスト（1行 = 1テキスト）</h3>
+            <button className="reset" title="この設定をリセット" onClick={resetText}>⟲</button>
+          </div>
           <textarea
             ref={textareaRef}
             rows={4}
@@ -151,7 +203,10 @@ export function GeneratorPage() {
         </section>
 
         <section>
-          <h3>絵文字・記号（ランダム付与）</h3>
+          <div className="section-head">
+            <h3>絵文字・記号（ランダム付与）</h3>
+            <button className="reset" title="この設定をリセット" onClick={resetEmoji}>⟲</button>
+          </div>
           <p className="param-hint">
             トークンごとに「文頭・文末・ランダム位置」に入れる個数を設定。固定 or
             範囲（生成ごとに変動）を選べ、同じトークンも複数追加できます。例: 👂 を文頭3・文末3で囁き声に。
@@ -167,8 +222,8 @@ export function GeneratorPage() {
       <section className="area-params">
         <div className="section-head">
           <h3>ランダム化パラメータ</h3>
-          <button type="button" className="reset" onClick={() => set({ params: resetParams() })}>
-            ⟲ 全てリセット
+          <button type="button" className="reset" title="全パラメータをリセット" onClick={() => set({ params: resetParams() })}>
+            ⟲ 全て
           </button>
         </div>
         <p className="param-hint">

@@ -188,9 +188,11 @@ button.reset {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 11px;
+  border-radius: 5px;
+  padding: 0 5px;
+  height: 20px;
+  line-height: 18px;
+  font-size: 10px;
   cursor: pointer;
 }
 button.reset:hover {

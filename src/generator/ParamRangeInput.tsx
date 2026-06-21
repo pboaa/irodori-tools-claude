@@ -73,7 +73,7 @@ export function ParamRangeInput({ param, factory, onChange }: Props) {
           title="数値を既定に戻す（モードは固定）"
           onClick={() => onChange({ ...factory, kind: 'fixed', fixed: factory.default })}
         >
-          ⟲ リセット
+          ⟲
         </button>
       </div>
 
