@@ -185,14 +185,17 @@ textarea {
   margin: 0;
 }
 button.reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
   border-radius: 5px;
-  padding: 0 5px;
-  height: 20px;
-  line-height: 18px;
-  font-size: 10px;
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 1;
   cursor: pointer;
 }
 button.reset:hover {
