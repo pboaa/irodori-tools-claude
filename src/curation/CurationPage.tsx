@@ -111,6 +111,52 @@ export function CurationPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [current, clampSel, setStatus, goNext]);
 
+  // MediaSession: lets OS media keys / Bluetooth buttons / the media overlay
+  // control playback even while the tab is in the background (audio must be
+  // playing). prev/next = navigate, play/pause = toggle, seek± = keep/reject.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    const set = (action: MediaSessionAction, fn: (() => void) | null) => {
+      try {
+        ms.setActionHandler(action, fn);
+      } catch {
+        /* unsupported action */
+      }
+    };
+    set('play', () => audioRef.current?.play().catch(() => {}));
+    set('pause', () => audioRef.current?.pause());
+    set('previoustrack', () => setSelected((s) => clampSel(s - 1)));
+    set('nexttrack', () => setSelected((s) => clampSel(s + 1)));
+    set('seekforward', () => {
+      setStatus(current, 'keep');
+      goNext();
+    });
+    set('seekbackward', () => {
+      setStatus(current, 'reject');
+      goNext();
+    });
+    return () => {
+      (['play', 'pause', 'previoustrack', 'nexttrack', 'seekforward', 'seekbackward'] as const).forEach(
+        (a) => set(a, null),
+      );
+    };
+  }, [current, clampSel, setStatus, goNext]);
+
+  // Show what's playing in the OS media overlay.
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !current) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: current.meta?.text || current.name,
+        artist: dirOf(current.relPath),
+        album: 'Irodori-TTS 厳選',
+      });
+    } catch {
+      /* MediaMetadata unsupported */
+    }
+  }, [current]);
+
   const doTransfer = async () => {
     if (!root) return;
     setBusy(true);
@@ -291,6 +337,8 @@ export function CurationPage() {
 
       <p className="hint">
         ショートカット: Space=再生/停止 · ↑↓=移動 · K=キープ · X=リジェクト · Enter=次
+        <br />
+        バックグラウンド操作（メディアキー/イヤホン）: ⏯=再生停止 · ⏮⏭=前/次 · 早送り=キープ・巻戻し=リジェクト
       </p>
     </div>
   );
