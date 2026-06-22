@@ -42,7 +42,7 @@ const DEFAULT_PREFS: Prefs = {
   wheelRate: true,
   defaultOkOnPass: true,
   ratingAdvances: true,
-  ratingFilter: [0, 1, 2, 3],
+  ratingFilter: [], // empty = show all; press chips to show only those
   mode: 'copy',
   minRating: 3,
 };
@@ -111,10 +111,10 @@ export function CurationPage() {
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const rf = new Set(prefs.ratingFilter);
+    const rf = prefs.ratingFilter; // empty = all ratings
     return items.filter((it) => {
       if (effFolder && dirOf(it.relPath) !== effFolder) return false;
-      if (!rf.has(it.rating)) return false;
+      if (rf.length > 0 && !rf.includes(it.rating)) return false;
       if (!q) return true;
       return it.relPath.toLowerCase().includes(q) || (it.meta?.text ?? '').toLowerCase().includes(q);
     });
@@ -593,7 +593,7 @@ export function CurationPage() {
               </span>
             </div>
             <p className="opt-desc">
-              選んだ評価だけを一覧・再生対象にします。例: 「未」だけ＝未評価のみ流す、「良」だけ＝良の聴き返し、「良＋不可」＝極端なものだけ二重チェック。
+              押した評価<b>だけ</b>を一覧・再生対象にします（何も押さなければ全部表示）。例: 「良」＝良の聴き返し、「良＋不可」＝極端なものだけ二重チェック、「未」＝未評価のみ流す。該当が0件なら再生しません。
             </p>
           </div>
         </div>

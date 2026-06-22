@@ -68,7 +68,10 @@ export function AudioPlayer({ item, autoPlay, loop, onEnded, onPeak, audioRef }:
     readyRef.current = false;
     (async () => {
       if (!item) {
-        if (!cancelled) setUrl(null);
+        if (!cancelled) {
+          setUrl(null);
+          audioRef.current?.pause(); // nothing to play (e.g. filter matched 0)
+        }
         return;
       }
       try {
