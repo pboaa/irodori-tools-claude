@@ -79,6 +79,7 @@ export function EmojiPicker({ entries, onChange }: Props) {
 
   return (
     <div className="emoji-editor">
+      <div className="entry-scroll">
       <div className="entry-grid">
         {entries.length > 0 && (
           <>
@@ -117,6 +118,7 @@ export function EmojiPicker({ entries, onChange }: Props) {
             </button>
           </div>
         ))}
+      </div>
       </div>
 
       <div className="custom-add">

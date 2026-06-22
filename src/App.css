@@ -319,12 +319,17 @@ button.reset:hover {
   color: var(--muted);
   padding: 6px 2px;
 }
+.entry-scroll {
+  overflow-x: auto;
+  margin-bottom: 10px;
+}
 .entry-grid {
   display: grid;
-  grid-template-columns: minmax(96px, 1.4fr) auto auto auto auto auto;
-  gap: 6px 10px;
+  grid-template-columns: minmax(72px, auto) auto auto auto auto auto;
+  gap: 6px 8px;
   align-items: center;
-  margin-bottom: 10px;
+  width: max-content;
+  min-width: 100%;
 }
 .eg-head {
   font-size: 10px;
@@ -363,6 +368,16 @@ button.reset:hover {
 .count-cell input[type='number'] {
   width: 46px;
   padding: 3px 4px;
+}
+.count-cell select {
+  width: 42px;
+  padding: 2px;
+}
+.entry-mode {
+  padding: 2px 4px;
+}
+.count-range {
+  gap: 2px;
 }
 .entry-del {
   margin-left: auto;

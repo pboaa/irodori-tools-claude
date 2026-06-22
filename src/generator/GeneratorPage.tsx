@@ -75,19 +75,6 @@ export function GeneratorPage() {
     const d = defaultConfig();
     set({ texts: d.texts, caption: d.caption, refMode: d.refMode, refWav: d.refWav, count: d.count });
   };
-  // Browsers can't expose a file's absolute path, so this fills the file NAME;
-  // edit/prefix the field if the wav lives in a subfolder of the repo.
-  const pickRefWav = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'audio/wav,.wav';
-    input.onchange = () => {
-      const f = input.files?.[0];
-      if (f) set({ refWav: f.name });
-    };
-    input.click();
-  };
-
   const resetEmoji = () => {
     const d = defaultConfig();
     set({
@@ -205,11 +192,12 @@ export function GeneratorPage() {
             </label>
             {config.refMode === 'ref-wav' && (
               <label className="field grow">
-                ref wav パス
-                <span className="path-pick">
-                  <input value={config.refWav} onChange={(e) => set({ refWav: e.target.value })} />
-                  <button type="button" onClick={pickRefWav}>参照…</button>
-                </span>
+                ref wav パス（repo からの相対 or 絶対）
+                <input
+                  value={config.refWav}
+                  placeholder="例: refs/voice.wav"
+                  onChange={(e) => set({ refWav: e.target.value })}
+                />
               </label>
             )}
             <label className="field">
@@ -221,12 +209,6 @@ export function GeneratorPage() {
               </select>
             </label>
           </div>
-          {config.refMode === 'ref-wav' && (
-            <p className="param-hint">
-              ※ ブラウザはフルパスを取れないためファイル名のみ入ります。サブフォルダにある場合は
-              <code>refs/voice.wav</code> のように手で調整してください。
-            </p>
-          )}
           <div className="output-count">
             出力ファイル数: <b>{total}</b>（{textCount} テキスト × {config.count} 回）
           </div>
