@@ -89,6 +89,7 @@ export function CurationPage() {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(600);
   const [waitRemaining, setWaitRemaining] = useState<number | null>(null);
+  const [waitingIdSt, setWaitingIdSt] = useState<string | null>(null); // mirror of waitingId for render
   const [windowActive, setWindowActive] = useState(typeof document !== 'undefined' ? document.hasFocus() : true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -137,8 +138,17 @@ export function CurationPage() {
   // Selection is by item id, so changing folder/rating/text filters keeps the
   // current clip if it's still visible, and never carries a stale index.
   const foundIndex = filtered.findIndex((it) => it.id === selectedId);
-  const selIndex = foundIndex >= 0 ? foundIndex : 0;
-  const current: AudioItem | null = filtered[selIndex] ?? null;
+  let selIndex = foundIndex >= 0 ? foundIndex : 0;
+  let current: AudioItem | null = filtered[selIndex] ?? null;
+  // If a rating just removed the current clip from the filter while it's still
+  // in its 評価待ち/確定 window, keep it pinned so the wait isn't bypassed.
+  if (foundIndex < 0 && selectedId && waitingIdSt === selectedId) {
+    const pinned = items.find((it) => it.id === selectedId);
+    if (pinned) {
+      current = pinned;
+      selIndex = -1; // not in the visible list
+    }
+  }
   const transferCount = items.filter((it) => it.rating >= prefs.minRating && it.rating > 0).length;
 
   useEffect(() => {
@@ -205,7 +215,7 @@ export function CurationPage() {
 
   useEffect(() => {
     const el = wrapRef.current;
-    if (!el) return;
+    if (!el || selIndex < 0) return; // pinned item isn't in the list
     const top = selIndex * ROW_H;
     const bottom = top + ROW_H;
     if (top < el.scrollTop) el.scrollTop = top;
@@ -228,18 +238,23 @@ export function CurationPage() {
   }, []);
 
   // Advance within the filtered set (sequential, or random without repeats).
+  // If the current clip isn't in the filtered set (pinned/just-rated), start
+  // from the first item rather than skipping it.
   const goNext = useCallback(() => {
     const arr = filteredRef.current;
     const n = arr.length;
     if (n === 0) return;
-    const cur = curIndex();
+    const i = arr.findIndex((it) => it.id === currentRef.current?.id);
     if (prefs.randomMode) {
-      if (n <= 1) return;
-      let r = cur;
-      while (r === cur) r = Math.floor(Math.random() * n);
+      if (n === 1) {
+        setSelectedId(arr[0].id);
+        return;
+      }
+      let r = i;
+      while (r === i) r = Math.floor(Math.random() * n);
       setSelectedId(arr[r].id);
     } else {
-      setSelectedId(arr[Math.min(cur + 1, n - 1)].id);
+      setSelectedId(arr[i < 0 ? 0 : Math.min(i + 1, n - 1)].id);
     }
   }, [prefs.randomMode]);
 
@@ -252,6 +267,7 @@ export function CurationPage() {
     waitingId.current = null;
     waitUntil.current = 0;
     setWaitRemaining(null);
+    setWaitingIdSt(null);
     goNext();
   }, [goNext]);
 
@@ -300,6 +316,7 @@ export function CurationPage() {
         if (r > 0) {
           waitingId.current = item.id;
           waitUntil.current = Date.now() + LOOP_CONFIRM_MS;
+          setWaitingIdSt(item.id);
           advanceTimer.current = window.setTimeout(() => {
             audioRef.current?.pause();
             doAdvance();
@@ -308,6 +325,7 @@ export function CurationPage() {
           waitingId.current = null;
           waitUntil.current = 0;
           setWaitRemaining(null);
+          setWaitingIdSt(null);
         }
         return;
       }
@@ -344,6 +362,7 @@ export function CurationPage() {
     if (waitingId.current !== id) {
       waitingId.current = id;
       waitStart.current = Date.now();
+      setWaitingIdSt(id);
       armWaitTimer(id);
     }
   }, [prefs.advanceMode, prefs.ratingAdvances, doAdvance, armWaitTimer]);
