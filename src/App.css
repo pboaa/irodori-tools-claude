@@ -598,13 +598,54 @@ button.reset:hover {
   color: var(--muted);
 }
 .cura-settings-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
   margin-top: 8px;
 }
-.cura-settings-body .checkbox {
+.opt {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.opt-wide {
+  grid-column: 1 / -1;
+}
+.opt-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.opt .checkbox {
+  margin-bottom: 0;
+  font-weight: 600;
+}
+.opt-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.opt-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.opt-desc {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.usage-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.usage-group .usage {
   margin-bottom: 0;
 }
 .rate-filter {

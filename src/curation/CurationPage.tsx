@@ -456,76 +456,122 @@ export function CurationPage() {
       <details className="cura-settings" open>
         <summary>再生・評価 設定</summary>
         <div className="cura-settings-body">
-          <label className="checkbox">
-            <input type="checkbox" checked={prefs.autoAdvance} onChange={(e) => p({ autoAdvance: e.target.checked })} />
-            自動送り
-          </label>
-          {prefs.autoAdvance && (
-            <label className="checkbox" title="再生終了から評価を待つ間隔。経過したら普で次へ">
-              評価待ち
-              <select value={prefs.advanceDelay} onChange={(e) => p({ advanceDelay: Number(e.target.value) })}>
-                <option value={5}>5秒</option>
-                <option value={10}>10秒</option>
-                <option value={30}>30秒</option>
-                <option value={60}>1分</option>
-                <option value={120}>2分</option>
-                <option value={300}>5分</option>
-              </select>
+          <div className="opt" title="再生が終わったら、評価待ちの間隔をおいて自動で次の音声へ進みます。">
+            <div className="opt-head">
+              <label className="checkbox">
+                <input type="checkbox" checked={prefs.autoAdvance} onChange={(e) => p({ autoAdvance: e.target.checked })} />
+                自動送り
+              </label>
+              {prefs.autoAdvance && (
+                <label className="opt-inline">
+                  間隔
+                  <select value={prefs.advanceDelay} onChange={(e) => p({ advanceDelay: Number(e.target.value) })}>
+                    <option value={5}>5秒</option>
+                    <option value={10}>10秒</option>
+                    <option value={30}>30秒</option>
+                    <option value={60}>1分</option>
+                    <option value={120}>2分</option>
+                    <option value={300}>5分</option>
+                  </select>
+                </label>
+              )}
+            </div>
+            <p className="opt-desc">
+              再生終了後、間隔をおいて自動で次へ。間隔を長くするほど作業中の評価負担が減ります（聴いて気づいた時だけ評価）。
+            </p>
+          </div>
+
+          <div className="opt" title="評価しても即座に次へ行かず、間隔まで待ちます。">
+            <label className="checkbox">
+              <input type="checkbox" checked={!prefs.ratingAdvances} onChange={(e) => p({ ratingAdvances: !e.target.checked })} />
+              評価しても待機
             </label>
-          )}
-          <label className="checkbox">
-            <input type="checkbox" checked={prefs.randomMode} onChange={(e) => p({ randomMode: e.target.checked })} />
-            ランダム
-          </label>
-          <span className="rate-filter">
-            表示:
-            {([[0, '未'], [1, '不可'], [2, '普'], [3, '良']] as const).map(([v, l]) => (
-              <button
-                key={v}
-                className={`chip-toggle ${prefs.ratingFilter.includes(v) ? 'on' : ''}`}
-                onClick={() => toggleRatingFilter(v)}
-                title={`${l} を表示`}
-              >
-                {l}
-              </button>
-            ))}
-          </span>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={!prefs.ratingAdvances}
-              onChange={(e) => p({ ratingAdvances: !e.target.checked })}
-            />
-            評価しても待機
-          </label>
-          <label className="checkbox">
-            <input type="checkbox" checked={prefs.loopUntilRated} onChange={(e) => p({ loopUntilRated: e.target.checked })} />
-            評価までループ
-          </label>
-          <label className="checkbox">
-            <input type="checkbox" checked={prefs.wheelRate} onChange={(e) => p({ wheelRate: e.target.checked })} />
-            スクロールで評価
-          </label>
-          <label className="checkbox">
-            <input type="checkbox" checked={prefs.defaultOkOnPass} onChange={(e) => p({ defaultOkOnPass: e.target.checked })} />
-            無操作は自動で普
-          </label>
-          <label className="checkbox">
-            <input type="checkbox" checked={prefs.autoSkipQuiet} onChange={(e) => p({ autoSkipQuiet: e.target.checked })} />
-            無音スキップ
-          </label>
-          {prefs.autoSkipQuiet && (
-            <input
-              type="number"
-              className="thresh"
-              min={0}
-              max={0.5}
-              step={0.005}
-              value={prefs.quietThresh}
-              title="この振幅未満を無音として次へ"
-              onChange={(e) => p({ quietThresh: Number(e.target.value) })}
-            />
-          )}
+            <p className="opt-desc">
+              通常は評価した瞬間に次へ進みます。ONにすると評価しても進まず、自動送りの間隔が来るまで留まります（作業中の進みすぎ防止）。
+            </p>
+          </div>
+
+          <div className="opt" title="評価待ちが経過しても未評価なら普(2)を付けて次へ。">
+            <label className="checkbox">
+              <input type="checkbox" checked={prefs.defaultOkOnPass} onChange={(e) => p({ defaultOkOnPass: e.target.checked })} />
+              無操作は自動で普
+            </label>
+            <p className="opt-desc">
+              自動送りの間隔が過ぎても未評価だった音声に、自動で「普(2)」を付けて次へ進みます。良し悪しだけ手で付ければOKに。
+            </p>
+          </div>
+
+          <div className="opt" title="評価待ちの間、その音声を繰り返し再生します。">
+            <label className="checkbox">
+              <input type="checkbox" checked={prefs.loopUntilRated} onChange={(e) => p({ loopUntilRated: e.target.checked })} />
+              評価待ちでループ
+            </label>
+            <p className="opt-desc">評価待ちの間、その音声をループ再生し続けます（評価するか間隔が来たら次へ）。</p>
+          </div>
+
+          <div className="opt" title="プレイヤー上（非アクティブ時は画面全体）でホイール評価。">
+            <label className="checkbox">
+              <input type="checkbox" checked={prefs.wheelRate} onChange={(e) => p({ wheelRate: e.target.checked })} />
+              スクロールで評価
+            </label>
+            <p className="opt-desc">
+              ホイール上=良 / 下=不可（良から下で普、不可から上で普に戻せる）。ブラウザが<b>非アクティブでも画面全体</b>で効くので、別アプリ作業中でもホバーして評価できます（最小化時は不可）。
+            </p>
+          </div>
+
+          <div className="opt" title="次へ進むとき順番ではなくランダムに選びます。">
+            <label className="checkbox">
+              <input type="checkbox" checked={prefs.randomMode} onChange={(e) => p({ randomMode: e.target.checked })} />
+              ランダム再生
+            </label>
+            <p className="opt-desc">次へ進むとき順番ではなくランダムな音声を選びます（同じものは連続しません）。</p>
+          </div>
+
+          <div className="opt" title="音量が小さい（無音/失敗）音声を自動でスキップ。">
+            <div className="opt-head">
+              <label className="checkbox">
+                <input type="checkbox" checked={prefs.autoSkipQuiet} onChange={(e) => p({ autoSkipQuiet: e.target.checked })} />
+                無音スキップ
+              </label>
+              {prefs.autoSkipQuiet && (
+                <label className="opt-inline">
+                  閾値
+                  <input
+                    type="number"
+                    className="thresh"
+                    min={0}
+                    max={0.5}
+                    step={0.005}
+                    value={prefs.quietThresh}
+                    onChange={(e) => p({ quietThresh: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+            </div>
+            <p className="opt-desc">
+              波形のピークが閾値未満（ほぼ無音＝生成失敗など）の音声を自動でスキップします。閾値が小さいほど厳しめ（既定 0.02）。
+            </p>
+          </div>
+
+          <div className="opt opt-wide" title="一覧と送り対象に含める評価を選びます。">
+            <div className="opt-head">
+              <span className="opt-label">表示する評価</span>
+              <span className="rate-filter">
+                {([[0, '未'], [1, '不可'], [2, '普'], [3, '良']] as const).map(([v, l]) => (
+                  <button
+                    key={v}
+                    className={`chip-toggle ${prefs.ratingFilter.includes(v) ? 'on' : ''}`}
+                    onClick={() => toggleRatingFilter(v)}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </span>
+            </div>
+            <p className="opt-desc">
+              選んだ評価だけを一覧・再生対象にします。例: 「未」だけ＝未評価のみ流す、「良」だけ＝良の聴き返し、「良＋不可」＝極端なものだけ二重チェック。
+            </p>
+          </div>
         </div>
       </details>
 
