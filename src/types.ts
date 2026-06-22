@@ -76,6 +76,10 @@ export interface GenConfig {
   refWav: string;
   /** Per-token emoji/symbol injection rules. */
   emojiEntries: EmojiEntry[];
+  /** Per-slot maximum total emoji count (budget; fixed first, range fills rest). */
+  emojiMaxHead: number;
+  emojiMaxTail: number;
+  emojiMaxRand: number;
   /** Generations per text line. */
   count: number;
   /** Output directory the scripts create and write into. */

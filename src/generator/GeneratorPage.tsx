@@ -75,7 +75,15 @@ export function GeneratorPage() {
     const d = defaultConfig();
     set({ texts: d.texts, caption: d.caption, refMode: d.refMode, refWav: d.refWav, count: d.count });
   };
-  const resetEmoji = () => set({ emojiEntries: defaultConfig().emojiEntries });
+  const resetEmoji = () => {
+    const d = defaultConfig();
+    set({
+      emojiEntries: d.emojiEntries,
+      emojiMaxHead: d.emojiMaxHead,
+      emojiMaxTail: d.emojiMaxTail,
+      emojiMaxRand: d.emojiMaxRand,
+    });
+  };
 
   const ps1 = useMemo(() => buildPs1(config), [config]);
   const bat = useMemo(() => buildBat(config), [config]);
@@ -210,6 +218,42 @@ export function GeneratorPage() {
           <p className="param-hint">
             トークンごとに「文頭・文末・ランダム位置」に入れる個数を設定。固定 or
             範囲（生成ごとに変動）を選べ、同じトークンも複数追加できます。例: 👂 を文頭3・文末3で囁き声に。
+          </p>
+          <div className="inline maxrow">
+            <span className="maxrow-label">最大数:</span>
+            <label className="field">
+              文頭
+              <input
+                type="number"
+                min={0}
+                max={20}
+                value={config.emojiMaxHead}
+                onChange={(e) => set({ emojiMaxHead: Number(e.target.value) })}
+              />
+            </label>
+            <label className="field">
+              文末
+              <input
+                type="number"
+                min={0}
+                max={20}
+                value={config.emojiMaxTail}
+                onChange={(e) => set({ emojiMaxTail: Number(e.target.value) })}
+              />
+            </label>
+            <label className="field">
+              ランダム位置
+              <input
+                type="number"
+                min={0}
+                max={20}
+                value={config.emojiMaxRand}
+                onChange={(e) => set({ emojiMaxRand: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <p className="param-hint">
+            各スロットはこの最大数まで。<b>固定を優先配置</b>し、余りがあれば<b>範囲</b>がランダムで埋めます。
           </p>
           <EmojiPicker
             entries={config.emojiEntries}

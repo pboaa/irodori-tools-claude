@@ -127,21 +127,26 @@ describe('buildPs1', () => {
     expect(s).toContain('    $Text = $BaseText');
   });
 
-  it('emits a fixed entry as collapsed min===max (whisper 👂 head3/tail3)', () => {
+  it('emits per-slot caps and a fixed entry (whisper 👂 head3/tail3)', () => {
     const s = buildPs1(
-      cfg({ emojiEntries: [entry('👂', { mode: 'fixed', headMin: 3, headMax: 3, tailMin: 3, tailMax: 3 })] }),
+      cfg({
+        emojiEntries: [entry('👂', { mode: 'fixed', headMin: 3, headMax: 3, tailMin: 3, tailMax: 3 })],
+        emojiMaxHead: 5,
+        emojiMaxTail: 8,
+        emojiMaxRand: 3,
+      }),
     );
-    expect(s).toContain("Token = '👂'; HMin = 3; HMax = 3; TMin = 3; TMax = 3");
+    expect(s).toContain('$MaxHead = 5; $MaxTail = 8; $MaxRand = 3');
+    expect(s).toContain("Token = '👂'; Mode = 'fixed'; HLo = 3; HHi = 3; TLo = 3; THi = 3");
+    expect(s).toContain('function Fill-Slot($slot, $cap)');
     expect(s).toContain('$Text = $Head + $BaseText + $Tail');
-    expect(s).toContain('$en.Token * $h');
   });
 
   it('emits a range entry preserving min/max (random 0-2)', () => {
     const s = buildPs1(
       cfg({ emojiEntries: [entry('👂', { mode: 'range', tailMin: 0, tailMax: 2, randMin: 0, randMax: 2 })] }),
     );
-    expect(s).toContain('TMin = 0; TMax = 2');
-    expect(s).toContain('RMin = 0; RMax = 2');
+    expect(s).toContain("Mode = 'range'; HLo = 0; HHi = 0; TLo = 0; THi = 2; RLo = 0; RHi = 2");
   });
 
   it('supports multiple entries of the same token and custom symbols', () => {
@@ -186,9 +191,18 @@ describe('buildPy', () => {
     expect(buildPy(cfg({ checkpointKind: 'local' }))).toContain('MODEL if CHECKPOINT_KIND == "local"');
   });
 
-  it('embeds emoji entries and params as Python-valid literals', () => {
-    const s = buildPy(cfg({ emojiEntries: [entry('👂', { mode: 'fixed', headMin: 3, headMax: 3 })] }));
-    expect(s).toContain('ENTRIES = [["👂",3,3,1,1,0,0]]');
+  it('embeds emoji entries (with mode), caps and params as Python literals', () => {
+    const s = buildPy(
+      cfg({
+        emojiEntries: [entry('👂', { mode: 'fixed', headMin: 3, headMax: 3 })],
+        emojiMaxHead: 5,
+        emojiMaxTail: 8,
+        emojiMaxRand: 3,
+      }),
+    );
+    expect(s).toContain('ENTRIES = [["👂","fixed",3,3,1,1,0,0]]');
+    expect(s).toContain('MAX_HEAD = 5; MAX_TAIL = 8; MAX_RAND = 3');
+    expect(s).toContain('def fill(s, cap):');
     expect(s).toContain('PARAMS = {');
   });
 });
@@ -227,7 +241,8 @@ describe('buildBat', () => {
   it('delegates emoji composition to powershell when entries exist', () => {
     const s = buildBat(cfg({ emojiEntries: [entry('👂', { headMin: 3, headMax: 3 })] }));
     expect(s).toContain('tokens=1,2 delims=|');
-    expect(s).toContain("('👂'*$h)");
+    expect(s).toContain('Token=');
+    expect(s).toContain('function fs($s,$cap)');
     const off = buildBat(cfg({ emojiEntries: [] }));
     expect(off).not.toContain('delims=|');
   });

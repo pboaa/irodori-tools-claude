@@ -54,15 +54,37 @@ function emojiEnabled(config: GenConfig): boolean {
   return config.emojiEntries.length > 0;
 }
 
-/** Resolve an entry's per-slot [min,max] (fixed mode collapses to [v,v]). */
-function slot(
-  entry: import('../types').EmojiEntry,
-  which: 'head' | 'tail' | 'rand',
-): [number, number] {
-  const min = Math.max(0, Math.floor(entry[`${which}Min`]));
-  const max = Math.max(0, Math.floor(entry[`${which}Max`]));
-  return entry.mode === 'fixed' ? [min, min] : [Math.min(min, max), Math.max(min, max)];
+interface EntryTuple {
+  token: string;
+  mode: 'fixed' | 'range';
+  h: [number, number];
+  t: [number, number];
+  r: [number, number];
 }
+
+/** Normalize entries to [lo,hi] per slot (fixed collapses to [v,v]). */
+function entryTuples(config: GenConfig): EntryTuple[] {
+  return config.emojiEntries.map((e) => {
+    const norm = (mn: number, mx: number): [number, number] => {
+      const a = Math.max(0, Math.floor(mn));
+      const b = Math.max(0, Math.floor(mx));
+      return e.mode === 'fixed' ? [a, a] : [Math.min(a, b), Math.max(a, b)];
+    };
+    return {
+      token: e.token,
+      mode: e.mode,
+      h: norm(e.headMin, e.headMax),
+      t: norm(e.tailMin, e.tailMax),
+      r: norm(e.randMin, e.randMax),
+    };
+  });
+}
+
+const caps = (config: GenConfig) => ({
+  head: Math.max(0, Math.floor(config.emojiMaxHead)),
+  tail: Math.max(0, Math.floor(config.emojiMaxTail)),
+  rand: Math.max(0, Math.floor(config.emojiMaxRand)),
+});
 
 /** Per-flag PowerShell variable name and sidecar JSON key. */
 const FLAG_INFO: Record<string, { psVar: string; jsonKey: string; env: string }> = {
@@ -93,23 +115,52 @@ function numLit(p: ParamRange, value: number): string {
   return value.toFixed(p.decimals);
 }
 
-/** PowerShell lines defining $Entries + the Get-Cnt helper (emitted once). */
+/** PowerShell lines defining $Entries, caps + the Fill-Slot helper (emitted once). */
 function psEntriesSetup(config: GenConfig): string[] {
   if (!emojiEnabled(config)) return [];
+  const c = caps(config);
   const L: string[] = [];
-  L.push('function Get-Cnt($a, $b) { $lo = [math]::Min($a, $b); $hi = [math]::Max($a, $b); return (Get-Random -Minimum $lo -Maximum ($hi + 1)) }');
+  L.push(`$MaxHead = ${c.head}; $MaxTail = ${c.tail}; $MaxRand = ${c.rand}`);
   L.push('$Entries = @(');
   L.push(
-    config.emojiEntries
-      .map((e) => {
-        const [hMin, hMax] = slot(e, 'head');
-        const [tMin, tMax] = slot(e, 'tail');
-        const [rMin, rMax] = slot(e, 'rand');
-        return `  [pscustomobject]@{ Token = ${psLit(e.token)}; HMin = ${hMin}; HMax = ${hMax}; TMin = ${tMin}; TMax = ${tMax}; RMin = ${rMin}; RMax = ${rMax} }`;
-      })
+    entryTuples(config)
+      .map(
+        (e) =>
+          `  [pscustomobject]@{ Token = ${psLit(e.token)}; Mode = ${psLit(e.mode)}; HLo = ${e.h[0]}; HHi = ${e.h[1]}; TLo = ${e.t[0]}; THi = ${e.t[1]}; RLo = ${e.r[0]}; RHi = ${e.r[1]} }`,
+      )
       .join(',\n'),
   );
   L.push(')');
+  // Allocate up to $cap tokens for a slot: fixed entries first, then range fills the rest.
+  L.push('function Get-LoHi($e, $slot) {');
+  L.push('  if ($slot -eq "H") { return @($e.HLo, $e.HHi) }');
+  L.push('  if ($slot -eq "T") { return @($e.TLo, $e.THi) }');
+  L.push('  return @($e.RLo, $e.RHi)');
+  L.push('}');
+  L.push('function Fill-Slot($slot, $cap) {');
+  L.push('  $used = 0; $out = @()');
+  L.push('  foreach ($e in $Entries) {');
+  L.push('    if ($e.Mode -ne "fixed") { continue }');
+  L.push('    $lh = Get-LoHi $e $slot');
+  L.push('    $take = [math]::Min([int]$lh[0], $cap - $used)');
+  L.push('    for ($k = 0; $k -lt $take; $k++) { $out += $e.Token }');
+  L.push('    if ($take -gt 0) { $used += $take }');
+  L.push('    if ($used -ge $cap) { return ,$out }');
+  L.push('  }');
+  L.push('  foreach ($e in $Entries) {');
+  L.push('    if ($e.Mode -ne "range") { continue }');
+  L.push('    if ($used -ge $cap) { break }');
+  L.push('    $rem = $cap - $used');
+  L.push('    $lh = Get-LoHi $e $slot');
+  L.push('    $lo = [math]::Min([int]$lh[0], $rem)');
+  L.push('    $hi = [math]::Min([int]$lh[1], $rem)');
+  L.push('    if ($lo -lt 0) { $lo = 0 }');
+  L.push('    $take = Get-Random -Minimum $lo -Maximum ($hi + 1)');
+  L.push('    for ($k = 0; $k -lt $take; $k++) { $out += $e.Token }');
+  L.push('    $used += $take');
+  L.push('  }');
+  L.push('  return ,$out');
+  L.push('}');
   return L;
 }
 
@@ -119,23 +170,17 @@ function psEmojiBlock(config: GenConfig): string[] {
     return ['    $Emoji = ""', '    $Text = $BaseText'];
   }
   return [
-    '    $Head = ""',
-    '    $Tail = ""',
-    '    $Emoji = ""',
-    '    foreach ($en in $Entries) {',
-    '      $h = Get-Cnt $en.HMin $en.HMax',
-    '      $t = Get-Cnt $en.TMin $en.TMax',
-    '      if ($h -gt 0) { $Head += $en.Token * $h; $Emoji += $en.Token * $h }',
-    '      if ($t -gt 0) { $Tail += $en.Token * $t; $Emoji += $en.Token * $t }',
-    '    }',
+    '    $HeadArr = @(Fill-Slot "H" $MaxHead)',
+    '    $TailArr = @(Fill-Slot "T" $MaxTail)',
+    '    $RandArr = @(Fill-Slot "R" $MaxRand)',
+    '    $Head = -join $HeadArr',
+    '    $Tail = -join $TailArr',
     '    $Text = $Head + $BaseText + $Tail',
-    '    foreach ($en in $Entries) {',
-    '      $r = Get-Cnt $en.RMin $en.RMax',
-    '      for ($k = 0; $k -lt $r; $k++) {',
-    '        $pos = Get-Random -Minimum 0 -Maximum ($Text.Length + 1)',
-    '        $Text = $Text.Substring(0, $pos) + $en.Token + $Text.Substring($pos)',
-    '        $Emoji += $en.Token',
-    '      }',
+    '    $Emoji = $Head + $Tail',
+    '    foreach ($tok in $RandArr) {',
+    '      $pos = Get-Random -Minimum 0 -Maximum ($Text.Length + 1)',
+    '      $Text = $Text.Substring(0, $pos) + $tok + $Text.Substring($pos)',
+    '      $Emoji += $tok',
     '    }',
   ];
 }
@@ -280,39 +325,29 @@ function psLitInline(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
 
-/** Inline PowerShell (quoted for bat) composing "text|appliedEmoji" from env. */
+/**
+ * Inline PowerShell (quoted for bat) composing "text|appliedEmoji" from env,
+ * using the same fixed-first / range-fills-remainder allocation as the .ps1.
+ * Single-quoted strings only (the whole script is wrapped in double quotes).
+ */
 function batEmojiComposeCmd(config: GenConfig): string {
+  const c = caps(config);
+  const entriesLit = entryTuples(config)
+    .map(
+      (e) =>
+        `[pscustomobject]@{Token=${psLitInline(e.token)};Mode=${psLitInline(e.mode)};HLo=${e.h[0]};HHi=${e.h[1]};TLo=${e.t[0]};THi=${e.t[1]};RLo=${e.r[0]};RHi=${e.r[1]}}`,
+    )
+    .join(',');
   const parts: string[] = [
     '$bs=$env:TTS_BASETEXT',
-    'function gc($a,$b){$l=[math]::Min($a,$b);$h=[math]::Max($a,$b);Get-Random -Minimum $l -Maximum ($h+1)}',
-    "$hd=''",
-    "$tl=''",
-    "$ap=''",
+    `$Entries=@(${entriesLit})`,
+    "function gl($e,$s){ if($s -eq 'H'){return @($e.HLo,$e.HHi)} if($s -eq 'T'){return @($e.TLo,$e.THi)} return @($e.RLo,$e.RHi) }",
+    'function fs($s,$cap){ $u=0;$o=@(); foreach($e in $Entries){ if($e.Mode -ne ' + "'fixed'" + '){continue}; $lh=gl $e $s; $tk=[math]::Min([int]$lh[0],$cap-$u); for($k=0;$k -lt $tk;$k++){$o+=$e.Token}; if($tk -gt 0){$u+=$tk}; if($u -ge $cap){return ,$o} }; foreach($e in $Entries){ if($e.Mode -ne ' + "'range'" + '){continue}; if($u -ge $cap){break}; $rm=$cap-$u; $lh=gl $e $s; $lo=[math]::Min([int]$lh[0],$rm); $hi=[math]::Min([int]$lh[1],$rm); if($lo -lt 0){$lo=0}; $tk=Get-Random -Minimum $lo -Maximum ($hi+1); for($k=0;$k -lt $tk;$k++){$o+=$e.Token}; $u+=$tk }; return ,$o }',
+    `$h=@(fs 'H' ${c.head}); $t=@(fs 'T' ${c.tail}); $r=@(fs 'R' ${c.rand})`,
+    '$hd=-join $h; $tl=-join $t; $tx=$hd+$bs+$tl; $ap=$hd+$tl',
+    'foreach($tok in $r){ $pos=Get-Random -Minimum 0 -Maximum ($tx.Length+1); $tx=$tx.Substring(0,$pos)+$tok+$tx.Substring($pos); $ap+=$tok }',
+    "Write-Output ($tx+'|'+$ap)",
   ];
-  // Head/tail counts per entry.
-  for (const e of config.emojiEntries) {
-    const tok = psLitInline(e.token);
-    const [hMin, hMax] = slot(e, 'head');
-    const [tMin, tMax] = slot(e, 'tail');
-    parts.push(
-      `$h=gc ${hMin} ${hMax}`,
-      `$t=gc ${tMin} ${tMax}`,
-      `if($h -gt 0){$hd+=(${tok}*$h);$ap+=(${tok}*$h)}`,
-      `if($t -gt 0){$tl+=(${tok}*$t);$ap+=(${tok}*$t)}`,
-    );
-  }
-  parts.push('$tx=$hd+$bs+$tl');
-  // Random-position inserts per entry.
-  for (const e of config.emojiEntries) {
-    const tok = psLitInline(e.token);
-    const [rMin, rMax] = slot(e, 'rand');
-    if (rMax <= 0) continue;
-    parts.push(
-      `$r=gc ${rMin} ${rMax}`,
-      `for($k=0;$k -lt $r;$k++){$pos=Get-Random -Minimum 0 -Maximum ($tx.Length+1);$tx=$tx.Substring(0,$pos)+${tok}+$tx.Substring($pos);$ap+=${tok}}`,
-    );
-  }
-  parts.push("Write-Output ($tx+'|'+$ap)");
   return '"' + parts.join(';') + '"';
 }
 
@@ -498,12 +533,17 @@ function batJsonPsCommand(config: GenConfig, active: ParamRange[]): string {
 export function buildPy(config: GenConfig): string {
   const texts = splitLines(config.texts);
   const folders = computeTextFolders(texts);
-  const entries = config.emojiEntries.map((e) => {
-    const [hMin, hMax] = slot(e, 'head');
-    const [tMin, tMax] = slot(e, 'tail');
-    const [rMin, rMax] = slot(e, 'rand');
-    return [e.token, hMin, hMax, tMin, tMax, rMin, rMax];
-  });
+  const c = caps(config);
+  const entries = entryTuples(config).map((e) => [
+    e.token,
+    e.mode,
+    e.h[0],
+    e.h[1],
+    e.t[0],
+    e.t[1],
+    e.r[0],
+    e.r[1],
+  ]);
   const params: Record<string, [string, string, number, number, number, number]> = {};
   for (const p of config.params) {
     params[p.flag] = [p.kind, p.type, p.fixed, p.min, p.max, p.decimals];
@@ -529,7 +569,8 @@ export function buildPy(config: GenConfig): string {
   L.push(`COUNT = ${Math.max(1, Math.floor(config.count))}`);
   L.push(`TEXTS = ${j(texts)}`);
   L.push(`TEXT_FOLDERS = ${j(folders)}`);
-  L.push(`ENTRIES = ${j(entries)}  # [token, hMin, hMax, tMin, tMax, rMin, rMax]`);
+  L.push(`ENTRIES = ${j(entries)}  # [token, mode, hLo, hHi, tLo, tHi, rLo, rHi]`);
+  L.push(`MAX_HEAD = ${c.head}; MAX_TAIL = ${c.tail}; MAX_RAND = ${c.rand}`);
   L.push(`PARAMS = ${j(params)}  # flag: [kind, type, fixed, min, max, decimals]`);
   L.push('DEFAULTS = {"num-steps": 40, "duration-scale": 1.0, "sway-coeff": -1.0,');
   L.push('            "cfg-scale-text": 3.0, "cfg-scale-caption": 3.0, "cfg-scale-speaker": 5.0}');
@@ -544,22 +585,30 @@ export function buildPy(config: GenConfig): string {
   L.push('def use(flag, raw):');
   L.push('    return DEFAULTS[flag] if raw is None else raw');
   L.push('');
-  L.push('def cnt(a, b):');
-  L.push('    lo, hi = min(a, b), max(a, b)');
-  L.push('    return random.randint(lo, hi)');
+  L.push('def lohi(e, s):');
+  L.push('    return (e[2], e[3]) if s == "H" else (e[4], e[5]) if s == "T" else (e[6], e[7])');
+  L.push('');
+  L.push('def fill(s, cap):');
+  L.push('    used = 0; out = []');
+  L.push('    for e in ENTRIES:  # fixed entries first (priority)');
+  L.push('        if e[1] != "fixed": continue');
+  L.push('        lo, _ = lohi(e, s); take = min(int(lo), cap - used)');
+  L.push('        out += [e[0]] * take; used += max(0, take)');
+  L.push('        if used >= cap: return out');
+  L.push('    for e in ENTRIES:  # range entries fill the remaining budget');
+  L.push('        if e[1] != "range" or used >= cap: continue');
+  L.push('        lo, hi = lohi(e, s); rem = cap - used');
+  L.push('        lo = min(int(lo), rem); hi = min(int(hi), rem)');
+  L.push('        take = random.randint(max(0, lo), hi)');
+  L.push('        out += [e[0]] * take; used += take');
+  L.push('    return out');
   L.push('');
   L.push('def compose(base):');
-  L.push('    head = ""; tail = ""; applied = ""');
-  L.push('    for tok, hmn, hmx, tmn, tmx, rmn, rmx in ENTRIES:');
-  L.push('        h = cnt(hmn, hmx); t = cnt(tmn, tmx)');
-  L.push('        if h > 0: head += tok * h; applied += tok * h');
-  L.push('        if t > 0: tail += tok * t; applied += tok * t');
-  L.push('    text = head + base + tail');
-  L.push('    for tok, hmn, hmx, tmn, tmx, rmn, rmx in ENTRIES:');
-  L.push('        for _ in range(cnt(rmn, rmx)):');
-  L.push('            pos = random.randint(0, len(text))');
-  L.push('            text = text[:pos] + tok + text[pos:]');
-  L.push('            applied += tok');
+  L.push('    head = "".join(fill("H", MAX_HEAD)); tail = "".join(fill("T", MAX_TAIL))');
+  L.push('    text = head + base + tail; applied = head + tail');
+  L.push('    for tok in fill("R", MAX_RAND):');
+  L.push('        pos = random.randint(0, len(text))');
+  L.push('        text = text[:pos] + tok + text[pos:]; applied += tok');
   L.push('    return text, applied');
   L.push('');
   L.push('checkpoint_path = MODEL if CHECKPOINT_KIND == "local" else hf_hub_download(repo_id=MODEL, filename="model.safetensors")');

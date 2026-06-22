@@ -286,6 +286,21 @@ button.reset:hover {
   align-items: center;
   gap: 4px;
 }
+.maxrow {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.maxrow-label {
+  font-size: 12px;
+  color: var(--muted);
+  padding-bottom: 8px;
+}
+.maxrow .field {
+  margin-bottom: 0;
+}
+.maxrow .field input {
+  width: 64px;
+}
 .emoji-empty {
   font-size: 12px;
   color: var(--muted);
