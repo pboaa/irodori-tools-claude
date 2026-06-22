@@ -38,9 +38,9 @@ export function makeEntry(token: string, partial: Partial<EmojiEntry> = {}): Emo
   };
 }
 
-/** Reset target for params: factory numbers but mode forced to 固定(fixed). */
+/** Reset target for params: restore the factory defaults (including range modes). */
 export function resetParams(): ParamRange[] {
-  return defaultParams().map((p) => ({ ...p, kind: 'fixed', fixed: p.default }));
+  return defaultParams();
 }
 
 export function defaultConfig(): GenConfig {
