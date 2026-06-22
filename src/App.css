@@ -103,6 +103,64 @@ textarea {
   resize: vertical;
 }
 
+/* ---- Usage panel ---- */
+.usage {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.usage > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  list-style: none;
+}
+.usage > summary::before {
+  content: '▸ ';
+  color: var(--muted);
+}
+.usage[open] > summary::before {
+  content: '▾ ';
+}
+.usage-body {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.usage-body h4 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+  color: var(--accent);
+}
+.usage-body ol {
+  margin: 0;
+  padding-left: 1.3em;
+}
+.usage-body li {
+  margin-bottom: 4px;
+}
+.usage-body code {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.usage-body a {
+  color: var(--accent);
+}
+.usage-note {
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 10px;
+}
+
 /* ---- Generator ---- */
 /* 2x2 layout: config | params (right) / emoji (bottom-left) | output (bottom-right). */
 .gen-grid {

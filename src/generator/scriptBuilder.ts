@@ -13,6 +13,21 @@ function activeParams(config: GenConfig): ParamRange[] {
   return config.params.filter((p) => p.kind !== 'off');
 }
 
+/**
+ * Strip a single pair of surrounding quotes. Windows Explorer's "Copy as path"
+ * wraps paths in double quotes; without this the script would quote them again
+ * and infer.py would get a non-existent path.
+ */
+export function stripQuotes(s: string): string {
+  const t = s.trim();
+  if (t.length >= 2) {
+    const a = t[0];
+    const b = t[t.length - 1];
+    if ((a === '"' && b === '"') || (a === "'" && b === "'")) return t.slice(1, -1);
+  }
+  return t;
+}
+
 /** Remove emoji / pictograph / decorative-symbol characters. */
 export function stripEmoji(s: string): string {
   return (
@@ -198,7 +213,7 @@ export function buildPs1(config: GenConfig): string {
   L.push('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8');
   L.push('$inv = [System.Globalization.CultureInfo]::InvariantCulture');
   L.push('');
-  L.push(`$OutDir = ${psLit(config.outputDir)}`);
+  L.push(`$OutDir = ${psLit(stripQuotes(config.outputDir))}`);
   L.push('New-Item -ItemType Directory -Force -Path $OutDir | Out-Null');
   L.push('');
   L.push('$Texts = @(');
@@ -208,8 +223,8 @@ export function buildPs1(config: GenConfig): string {
   L.push(folders.map((f) => '  ' + psLit(f)).join(',\n'));
   L.push(')');
   for (const line of psEntriesSetup(config)) L.push(line);
-  L.push(`$Model = ${psLit(config.checkpoint)}`);
-  if (config.refMode === 'ref-wav') L.push(`$RefWav = ${psLit(config.refWav)}`);
+  L.push(`$Model = ${psLit(stripQuotes(config.checkpoint))}`);
+  if (config.refMode === 'ref-wav') L.push(`$RefWav = ${psLit(stripQuotes(config.refWav))}`);
   if (config.caption.trim()) L.push(`$Caption = ${psLit(config.caption)}`);
   L.push('$RunId = (Get-Date).ToString("yyyyMMdd_HHmmss")');
   // Each run gets its own folder; each text gets a subfolder under it.
@@ -371,14 +386,14 @@ export function buildBat(config: GenConfig): string {
   L.push('setlocal enabledelayedexpansion');
   L.push('chcp 65001 > nul');
   L.push('');
-  L.push(batSet('OUTDIR', config.outputDir.replace(/\//g, '\\')));
+  L.push(batSet('OUTDIR', stripQuotes(config.outputDir).replace(/\//g, '\\')));
   L.push('if not exist "%OUTDIR%" mkdir "%OUTDIR%"');
   L.push('');
   texts.forEach((t, i) => L.push(batSet(`TEXT[${i}]`, t)));
   folders.forEach((f, i) => L.push(batSet(`TEXTFOLDER[${i}]`, f)));
   L.push(`set /a TEXTCOUNT=${texts.length}`);
-  L.push(batSet('MODEL', config.checkpoint));
-  if (config.refMode === 'ref-wav') L.push(batSet('REFWAV', config.refWav));
+  L.push(batSet('MODEL', stripQuotes(config.checkpoint)));
+  if (config.refMode === 'ref-wav') L.push(batSet('REFWAV', stripQuotes(config.refWav)));
   if (config.caption.trim()) L.push(batSet('CAPTION', config.caption));
   L.push(
     'for /f "usebackq delims=" %%r in (`powershell -NoProfile -Command "(Get-Date).ToString(\'yyyyMMdd_HHmmss\')"`) do set "RUNID=%%r"',
@@ -560,11 +575,11 @@ export function buildPy(config: GenConfig): string {
   L.push('    InferenceRuntime, RuntimeKey, SamplingRequest, default_runtime_device, save_wav,');
   L.push(')');
   L.push('');
-  L.push(`OUT_DIR = ${j(config.outputDir)}`);
-  L.push(`MODEL = ${j(config.checkpoint)}`);
+  L.push(`OUT_DIR = ${j(stripQuotes(config.outputDir))}`);
+  L.push(`MODEL = ${j(stripQuotes(config.checkpoint))}`);
   L.push(`CHECKPOINT_KIND = ${j(config.checkpointKind)}`);
   L.push(`REF_MODE = ${j(config.refMode)}`);
-  L.push(`REF_WAV = ${config.refMode === 'ref-wav' && config.refWav.trim() ? j(config.refWav) : 'None'}`);
+  L.push(`REF_WAV = ${config.refMode === 'ref-wav' && stripQuotes(config.refWav) ? j(stripQuotes(config.refWav)) : 'None'}`);
   L.push(`CAPTION = ${config.caption.trim() ? j(config.caption) : 'None'}`);
   L.push(`COUNT = ${Math.max(1, Math.floor(config.count))}`);
   L.push(`TEXTS = ${j(texts)}`);

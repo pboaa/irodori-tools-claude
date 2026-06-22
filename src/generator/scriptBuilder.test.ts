@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPs1, buildBat, buildPy, splitLines, textFolderName, stripEmoji } from './scriptBuilder';
+import { buildPs1, buildBat, buildPy, splitLines, textFolderName, stripEmoji, stripQuotes } from './scriptBuilder';
 import { defaultConfig, makeEntry } from '../lib/defaults';
 import type { EmojiEntry, GenConfig } from '../types';
 
@@ -17,6 +17,15 @@ describe('helpers', () => {
   });
   it('stripEmoji removes emojis but keeps text', () => {
     expect(stripEmoji('こんにちは🤭！')).toBe('こんにちは！');
+  });
+  it('stripQuotes removes a surrounding quote pair (Windows Copy as path)', () => {
+    expect(stripQuotes('"C:\\a\\ref.wav"')).toBe('C:\\a\\ref.wav');
+    expect(stripQuotes('refs/voice.wav')).toBe('refs/voice.wav');
+    expect(stripQuotes('  "x"  ')).toBe('x');
+  });
+  it('build output strips quotes from pasted paths', () => {
+    expect(buildPy(cfg({ refMode: 'ref-wav', refWav: '"C:\\a\\ref.wav"' }))).toContain('REF_WAV = "C:\\\\a\\\\ref.wav"');
+    expect(buildPs1(cfg({ outputDir: '"out/run"' }))).toContain("$OutDir = 'out/run'");
   });
   it('textFolderName sanitizes and removes emojis', () => {
     expect(textFolderName('こんにちは🤭、私はAIです。', 'x')).toBe('こんにちは、私はAIです。');
