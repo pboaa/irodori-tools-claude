@@ -80,7 +80,7 @@ export function CurationPage() {
         : [...s.ratingFilter, v].sort(),
     }));
 
-  const [selected, setSelected] = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [view, setView] = useState<'list' | 'analysis'>('list');
   const [busy, setBusy] = useState(false);
@@ -100,6 +100,7 @@ export function CurationPage() {
   const waitStart = useRef(0);
   const currentRef = useRef<AudioItem | null>(null);
   const itemsRef = useRef<AudioItem[]>(items);
+  const filteredRef = useRef<AudioItem[]>([]);
   const lastWheel = useRef<{ id: string | null; r: Rating }>({ id: null, r: 0 });
   const wheelCooldown = useRef(0);
 
@@ -133,12 +134,10 @@ export function CurationPage() {
     });
   }, [items, filter, effFolder, prefs.ratingFilter]);
 
-  const clampSel = useCallback(
-    (i: number) => Math.max(0, Math.min(i, filtered.length - 1)),
-    [filtered.length],
-  );
-
-  const selIndex = Math.min(selected, Math.max(0, filtered.length - 1));
+  // Selection is by item id, so changing folder/rating/text filters keeps the
+  // current clip if it's still visible, and never carries a stale index.
+  const foundIndex = filtered.findIndex((it) => it.id === selectedId);
+  const selIndex = foundIndex >= 0 ? foundIndex : 0;
   const current: AudioItem | null = filtered[selIndex] ?? null;
   const transferCount = items.filter((it) => it.rating >= prefs.minRating && it.rating > 0).length;
 
@@ -148,6 +147,9 @@ export function CurationPage() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+  useEffect(() => {
+    filteredRef.current = filtered;
+  }, [filtered]);
 
   // Cancel a pending 評価待ち when the clip actually changes (not on a rating
   // update, which keeps the same id).
@@ -210,20 +212,36 @@ export function CurationPage() {
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
   }, [selIndex]);
 
-  // Advance within the (rating-)filtered set.
+  // Index of the current item within the latest filtered set (via refs).
+  const curIndex = () => {
+    const arr = filteredRef.current;
+    const i = arr.findIndex((it) => it.id === currentRef.current?.id);
+    return i >= 0 ? i : 0;
+  };
+
+  // Move the selection by a delta (keyboard ↑↓ / media prev).
+  const moveBy = useCallback((delta: number) => {
+    const arr = filteredRef.current;
+    if (arr.length === 0) return;
+    const i = Math.max(0, Math.min(curIndex() + delta, arr.length - 1));
+    setSelectedId(arr[i].id);
+  }, []);
+
+  // Advance within the filtered set (sequential, or random without repeats).
   const goNext = useCallback(() => {
-    setSelected((s) => {
-      const n = filtered.length;
-      if (n <= 1) return Math.min(s, Math.max(0, n - 1));
-      const cur = Math.min(s, n - 1);
-      if (prefs.randomMode) {
-        let r = cur;
-        while (r === cur) r = Math.floor(Math.random() * n);
-        return r;
-      }
-      return Math.min(cur + 1, n - 1);
-    });
-  }, [filtered.length, prefs.randomMode]);
+    const arr = filteredRef.current;
+    const n = arr.length;
+    if (n === 0) return;
+    const cur = curIndex();
+    if (prefs.randomMode) {
+      if (n <= 1) return;
+      let r = cur;
+      while (r === cur) r = Math.floor(Math.random() * n);
+      setSelectedId(arr[r].id);
+    } else {
+      setSelectedId(arr[Math.min(cur + 1, n - 1)].id);
+    }
+  }, [prefs.randomMode]);
 
   // Stop the 評価待ち window and move on.
   const doAdvance = useCallback(() => {
@@ -302,13 +320,13 @@ export function CurationPage() {
 
   const pickFolder = (dir: string | null) => {
     setFolderSel(dir);
-    setSelected(0);
+    setSelectedId(null); // start from the first of the chosen folder
   };
 
   const openFolder = async () => {
     setFolderSel(null);
+    setSelectedId(null);
     await pick();
-    setSelected(0);
   };
 
   // On clip end:
@@ -379,8 +397,7 @@ export function CurationPage() {
     setView('list');
     setFilter('');
     setFolderSel(null);
-    const idx = itemsRef.current.findIndex((it) => it.id === id);
-    if (idx >= 0) setSelected(idx);
+    setSelectedId(id);
   }, []);
 
   // Keyboard: 1/2/3 rate, 0 clears (rating never auto-advances).
@@ -398,11 +415,11 @@ export function CurationPage() {
           break;
         case 'ArrowDown':
           e.preventDefault();
-          setSelected((s) => clampSel(s + 1));
+          moveBy(1);
           break;
         case 'ArrowUp':
           e.preventDefault();
-          setSelected((s) => clampSel(s - 1));
+          moveBy(-1);
           break;
         case '1':
           setRating(current, 1);
@@ -424,7 +441,7 @@ export function CurationPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [current, clampSel, setRating, goNext]);
+  }, [current, moveBy, setRating, goNext]);
 
   // MediaSession: background control via media keys.
   useEffect(() => {
@@ -439,7 +456,7 @@ export function CurationPage() {
     };
     set('play', () => audioRef.current?.play().catch(() => {}));
     set('pause', () => audioRef.current?.pause());
-    set('previoustrack', () => setSelected((s) => clampSel(s - 1)));
+    set('previoustrack', () => moveBy(-1));
     set('nexttrack', () => goNext());
     set('seekforward', () => setRating(currentRef.current, 3));
     set('seekbackward', () => setRating(currentRef.current, 1));
@@ -448,7 +465,7 @@ export function CurationPage() {
         (a) => set(a, null),
       );
     };
-  }, [clampSel, setRating, goNext]);
+  }, [moveBy, setRating, goNext]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator) || !current) return;
@@ -474,8 +491,8 @@ export function CurationPage() {
           (r.errors.length ? ` / エラー ${r.errors.length} 件` : ''),
       );
       if (prefs.mode === 'move' && r.moved > 0) {
+        // Drop moved items; selection realigns by id (falls to first if removed).
         setItems((arr) => arr.filter((it) => !(it.rating >= prefs.minRating && it.rating > 0)));
-        setSelected((s) => clampSel(s));
       }
     } catch (e) {
       setResult(String(e));
@@ -550,10 +567,7 @@ export function CurationPage() {
           className="filter"
           placeholder="テキスト/パスで絞り込み"
           value={filter}
-          onChange={(e) => {
-            setFilter(e.target.value);
-            setSelected(0);
-          }}
+          onChange={(e) => setFilter(e.target.value)}
         />
         <span className="grow" />
         <select value={prefs.minRating} onChange={(e) => p({ minRating: Number(e.target.value) })}>
@@ -793,7 +807,7 @@ export function CurationPage() {
                     <tr
                       key={it.id}
                       className={`${i === selIndex ? 'sel' : ''} r${it.rating}`}
-                      onClick={() => setSelected(i)}
+                      onClick={() => setSelectedId(it.id)}
                     >
                       <td className="rate">
                         {[1, 2, 3].map((v) => (
