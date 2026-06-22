@@ -166,6 +166,19 @@ textarea {
   display: flex;
   gap: 10px;
 }
+.path-pick {
+  display: flex;
+  gap: 6px;
+}
+.path-pick input {
+  flex: 1;
+  min-width: 0;
+}
+.path-pick button {
+  flex: none;
+  font-size: 11px;
+  padding: 4px 8px;
+}
 .inline .grow {
   flex: 1;
 }
@@ -306,27 +319,27 @@ button.reset:hover {
   color: var(--muted);
   padding: 6px 2px;
 }
-.entry-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.entry-grid {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.4fr) auto auto auto auto auto;
+  gap: 6px 10px;
+  align-items: center;
   margin-bottom: 10px;
 }
-.entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 8px;
+.eg-head {
+  font-size: 10px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2px;
+}
+/* Each entry's cells flow directly into the shared grid. */
+.entry-row {
+  display: contents;
 }
 .entry-token {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 120px;
+  flex-direction: column;
+  min-width: 0;
 }
 .entry-eff {
   font-size: 10px;

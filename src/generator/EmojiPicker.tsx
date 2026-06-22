@@ -28,7 +28,6 @@ function CountCell({
   const maxKey = `${which}Max` as const;
   return (
     <div className="count-cell">
-      <span className="count-label">{label}</span>
       {entry.mode === 'fixed' ? (
         <select
           value={entry[minKey]}
@@ -80,12 +79,24 @@ export function EmojiPicker({ entries, onChange }: Props) {
 
   return (
     <div className="emoji-editor">
-      <div className="entry-list">
+      <div className="entry-grid">
+        {entries.length > 0 && (
+          <>
+            <div className="eg-head">絵文字</div>
+            <div className="eg-head">固定/範囲</div>
+            <div className="eg-head">文頭</div>
+            <div className="eg-head">文末</div>
+            <div className="eg-head">ランダム位置</div>
+            <div className="eg-head" />
+          </>
+        )}
         {entries.length === 0 && (
-          <div className="emoji-empty">未設定（下のリストや入力欄から追加）</div>
+          <div className="emoji-empty" style={{ gridColumn: '1 / -1' }}>
+            未設定（下のパレットや入力欄から追加）
+          </div>
         )}
         {entries.map((e) => (
-          <div className="entry" key={e.id}>
+          <div className="entry-row" key={e.id}>
             <div className="entry-token" title={LABEL_OF.get(e.token) ?? 'カスタム'}>
               <span className="emoji-char">{e.token}</span>
               <span className="entry-eff">{LABEL_OF.get(e.token) ?? 'カスタム'}</span>
@@ -100,7 +111,7 @@ export function EmojiPicker({ entries, onChange }: Props) {
             </select>
             <CountCell entry={e} which="head" label="文頭" onPatch={(p) => patch(e.id, p)} />
             <CountCell entry={e} which="tail" label="文末" onPatch={(p) => patch(e.id, p)} />
-            <CountCell entry={e} which="rand" label="ﾗﾝﾀﾞﾑ位置" onPatch={(p) => patch(e.id, p)} />
+            <CountCell entry={e} which="rand" label="ランダム位置" onPatch={(p) => patch(e.id, p)} />
             <button className="entry-del" title="削除" onClick={() => remove(e.id)}>
               ✕
             </button>
