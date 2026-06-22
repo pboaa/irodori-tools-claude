@@ -72,6 +72,7 @@ export function CurationPage() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const playerWrapRef = useRef<HTMLDivElement | null>(null);
   const advanceTimer = useRef<number | null>(null);
+  const waitingId = useRef<string | null>(null);
   const currentRef = useRef<AudioItem | null>(null);
   const itemsRef = useRef<AudioItem[]>(items);
   const lastWheel = useRef<{ id: string | null; r: Rating }>({ id: null, r: 0 });
@@ -150,16 +151,6 @@ export function CurationPage() {
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
   }, [selIndex]);
 
-  // Set a rating (no auto-advance) and persist it to the sidecar JSON.
-  const setRating = useCallback(
-    (item: AudioItem | null, r: Rating) => {
-      if (!item) return;
-      setItems((arr) => arr.map((it) => (it.id === item.id ? { ...it, rating: r } : it)));
-      void writeRating(item, r);
-    },
-    [setItems],
-  );
-
   // Advance, optionally skipping already-rated items.
   const goNext = useCallback(() => {
     setSelected((s) => {
@@ -184,6 +175,27 @@ export function CurationPage() {
     });
   }, [filtered, prefs.skipRated, prefs.randomMode]);
 
+  // Stop the 評価待ち window and move on.
+  const doAdvance = useCallback(() => {
+    if (advanceTimer.current) {
+      clearTimeout(advanceTimer.current);
+      advanceTimer.current = null;
+    }
+    waitingId.current = null;
+    goNext();
+  }, [goNext]);
+
+  // Set a rating, persist it, and — if we're waiting on this clip — advance.
+  const setRating = useCallback(
+    (item: AudioItem | null, r: Rating) => {
+      if (!item) return;
+      setItems((arr) => arr.map((it) => (it.id === item.id ? { ...it, rating: r } : it)));
+      void writeRating(item, r);
+      if (r > 0 && prefs.autoAdvance && waitingId.current === item.id) doAdvance();
+    },
+    [setItems, prefs.autoAdvance, doAdvance],
+  );
+
   const pickFolder = (dir: string | null) => {
     setFolderSel(dir);
     setSelected(0);
@@ -195,21 +207,33 @@ export function CurationPage() {
     setSelected(0);
   };
 
-  // Auto-advance after a grace delay; an untouched clip auto-gets 普(2).
+  // On clip end (auto mode): if already rated → next; else enter 評価待ち for the
+  // configured interval (looping if enabled). A rating during the wait advances
+  // immediately; otherwise an untouched clip gets 普(2) and moves on.
   const handleEnded = useCallback(() => {
     if (!prefs.autoAdvance) return;
     const id = currentRef.current?.id ?? null;
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    advanceTimer.current = window.setTimeout(
-      () => {
+    if (!id) return;
+    const live = itemsRef.current.find((it) => it.id === id);
+    if (live && live.rating > 0) {
+      doAdvance();
+      return;
+    }
+    if (waitingId.current !== id) {
+      waitingId.current = id;
+      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+      advanceTimer.current = window.setTimeout(() => {
         if (currentRef.current?.id !== id) return; // user navigated away
-        const live = itemsRef.current.find((it) => it.id === id);
-        if (prefs.defaultOkOnPass && live && live.rating === 0) setRating(live, 2);
-        goNext();
-      },
-      Math.max(0, prefs.advanceDelay) * 1000,
-    );
-  }, [prefs.autoAdvance, prefs.advanceDelay, prefs.defaultOkOnPass, goNext, setRating]);
+        const l = itemsRef.current.find((it) => it.id === id);
+        if (prefs.defaultOkOnPass && l && l.rating === 0) setRating(l, 2); // setRating advances
+        else doAdvance();
+      }, Math.max(0, prefs.advanceDelay) * 1000);
+    }
+    if (prefs.loopUntilRated && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {});
+    }
+  }, [prefs.autoAdvance, prefs.advanceDelay, prefs.defaultOkOnPass, prefs.loopUntilRated, doAdvance, setRating]);
 
   useEffect(
     () => () => {
@@ -226,14 +250,17 @@ export function CurationPage() {
     [prefs.autoSkipQuiet, prefs.quietThresh, goNext],
   );
 
-  // Wheel-to-rate over the player: up = 良(3), down = 不可(1). Registered on
-  // window (passive:false) so preventDefault reliably stops the page from
-  // scrolling; only acts when the cursor is over the player area.
+  // Wheel-to-rate: up = 良(3), down = 不可(1).
+  // - Window is ACTIVE: only the player area rates (so list/page scroll normally).
+  // - Window is INACTIVE (working in another app but hovering the browser): the
+  //   WHOLE viewport rates — "ながら評価". `document.hasFocus()` tells them apart.
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       if (!prefs.wheelRate) return;
       const el = playerWrapRef.current;
-      if (!el || !(e.target instanceof Node) || !el.contains(e.target)) return;
+      const overPlayer = !!el && e.target instanceof Node && el.contains(e.target);
+      const wholeScreen = !document.hasFocus();
+      if (!wholeScreen && !overPlayer) return; // active + outside player → normal scroll
       e.preventDefault();
       const cur = currentRef.current;
       if (!cur) return;
@@ -411,18 +438,16 @@ export function CurationPage() {
             自動送り
           </label>
           {prefs.autoAdvance && (
-            <label className="checkbox" title="再生終了から次へ進むまでの猶予">
-              猶予
-              <input
-                type="number"
-                className="thresh"
-                min={0}
-                max={60}
-                step={1}
-                value={prefs.advanceDelay}
-                onChange={(e) => p({ advanceDelay: Math.max(0, Number(e.target.value)) })}
-              />
-              秒
+            <label className="checkbox" title="再生終了から評価を待つ間隔。経過したら普で次へ">
+              評価待ち
+              <select value={prefs.advanceDelay} onChange={(e) => p({ advanceDelay: Number(e.target.value) })}>
+                <option value={5}>5秒</option>
+                <option value={10}>10秒</option>
+                <option value={30}>30秒</option>
+                <option value={60}>1分</option>
+                <option value={120}>2分</option>
+                <option value={300}>5分</option>
+              </select>
             </label>
           )}
           <label className="checkbox">
@@ -478,7 +503,7 @@ export function CurationPage() {
         <AudioPlayer
           item={current}
           autoPlay={prefs.autoAdvance}
-          loop={prefs.loopUntilRated && !!current && current.rating === 0}
+          loop={false}
           onEnded={handleEnded}
           onPeak={handlePeak}
           audioRef={audioRef}
@@ -584,10 +609,10 @@ export function CurationPage() {
       )}
 
       <p className="hint">
-        ショートカット: Space=再生/停止 · ↑↓=移動 · 1=不可 / 2=普 / 3=良 · 0=クリア · Enter=次 ·
-        プレイヤー上でホイール上=良 / 下=不可
+        ショートカット: Space=再生/停止 · ↑↓=移動 · 1=不可 / 2=普 / 3=良 · 0=クリア · Enter=次
         <br />
-        バックグラウンド（メディアキー/イヤホン）: ⏯=再生停止 · ⏮⏭=前/次 · 早送り=良・巻戻し=不可
+        ホイール評価: 上=良 / 下=不可。<b>別アプリ作業中（ブラウザ非アクティブ）は画面全体</b>、
+        アクティブ時はプレイヤー上のみ。自動送りONなら 再生終了→評価待ち（評価で即次へ／無評価は普で次へ）。
       </p>
     </div>
   );
