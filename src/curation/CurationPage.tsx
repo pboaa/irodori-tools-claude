@@ -71,6 +71,19 @@ export function CurationPage() {
     setSelected(0);
   };
 
+  // Open a folder and start from its first file.
+  const openFolder = async () => {
+    setFolderSel(null);
+    await pick();
+    setSelected(0);
+  };
+
+  // Auto-advance only when auto-play is on (a finished clip shouldn't move the
+  // selection while the user is browsing with auto-play off).
+  const handleEnded = useCallback(() => {
+    if (autoPlay) goNext();
+  }, [autoPlay, goNext]);
+
   // Keyboard shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -192,7 +205,7 @@ export function CurationPage() {
   return (
     <div className="page curation">
       <div className="toolbar">
-        <button className="primary" onClick={pick}>
+        <button className="primary" onClick={openFolder}>
           フォルダを開く
         </button>
         <input
@@ -222,7 +235,7 @@ export function CurationPage() {
       {result && <p className="info">{result}</p>}
       {scanning && <p className="info">走査中…</p>}
 
-      <AudioPlayer item={current} autoPlay={autoPlay} onEnded={goNext} audioRef={audioRef} />
+      <AudioPlayer item={current} autoPlay={autoPlay} onEnded={handleEnded} audioRef={audioRef} />
 
       <div className="curation-body">
         {folders.length > 0 && (

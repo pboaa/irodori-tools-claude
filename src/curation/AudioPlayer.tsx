@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { AudioItem } from '../types';
 
 interface Props {
@@ -11,10 +11,16 @@ interface Props {
 /** Audio bar that loads the current item's wav via a Blob URL. */
 export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
   const [url, setUrl] = useState<string | null>(null);
+  // Current object URL, revoked only when replaced or on unmount (never while
+  // it is still the <audio> src — that previously caused stray events).
+  const urlRef = useRef<string | null>(null);
+  // True only once the *current* clip has actually started playing, so a stray
+  // `ended` fired while swapping src (navigating) can't trigger auto-advance.
+  const readyRef = useRef(false);
 
   useEffect(() => {
-    let revoked: string | null = null;
     let cancelled = false;
+    readyRef.current = false;
     (async () => {
       if (!item) {
         if (!cancelled) setUrl(null);
@@ -24,7 +30,8 @@ export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
         const file = await item.wavHandle.getFile();
         if (cancelled) return;
         const u = URL.createObjectURL(file);
-        revoked = u;
+        if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+        urlRef.current = u;
         setUrl(u);
       } catch {
         if (!cancelled) setUrl(null);
@@ -32,9 +39,16 @@ export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
     })();
     return () => {
       cancelled = true;
-      if (revoked) URL.revokeObjectURL(revoked);
     };
   }, [item]);
+
+  // Revoke the last URL when the component unmounts.
+  useEffect(
+    () => () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (url && autoPlay && audioRef.current) {
@@ -45,7 +59,18 @@ export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
   return (
     <div className="player">
       <div className="player-name">{item ? item.relPath : '—'}</div>
-      <audio ref={audioRef} src={url ?? undefined} controls onEnded={onEnded} />
+      <audio
+        ref={audioRef}
+        src={url ?? undefined}
+        controls
+        onPlaying={() => {
+          readyRef.current = true;
+        }}
+        onEnded={() => {
+          // Only advance on a genuine end of the clip that was actually playing.
+          if (readyRef.current && audioRef.current?.ended) onEnded();
+        }}
+      />
     </div>
   );
 }
