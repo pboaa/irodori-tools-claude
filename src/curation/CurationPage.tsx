@@ -90,6 +90,7 @@ export function CurationPage() {
   const [viewH, setViewH] = useState(600);
   const [waitRemaining, setWaitRemaining] = useState<number | null>(null);
   const [waitingIdSt, setWaitingIdSt] = useState<string | null>(null); // mirror of waitingId for render
+  const [playing, setPlaying] = useState(false);
   const [windowActive, setWindowActive] = useState(typeof document !== 'undefined' ? document.hasFocus() : true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -171,6 +172,22 @@ export function CurationPage() {
     waitingId.current = null;
     waitUntil.current = 0; // the countdown interval clears the badge within a tick
   }, [current?.id]);
+
+  // Track whether the audio is actually playing (for the overlay status line).
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const on = () => setPlaying(true);
+    const off = () => setPlaying(false);
+    a.addEventListener('playing', on);
+    a.addEventListener('pause', off);
+    a.addEventListener('ended', off);
+    return () => {
+      a.removeEventListener('playing', on);
+      a.removeEventListener('pause', off);
+      a.removeEventListener('ended', off);
+    };
+  }, []);
 
   // Track window focus (for the "ながら評価" overlay shown while inactive).
   useEffect(() => {
@@ -420,6 +437,20 @@ export function CurationPage() {
     return () => window.removeEventListener('wheel', onWheel);
   }, [prefs.wheelRate, setRating]);
 
+  // Click a row: select it, or restart it if it's already current (so you can
+  // replay during 評価待ち without changing selection).
+  const selectOrReplay = useCallback((id: string) => {
+    if (currentRef.current?.id === id) {
+      const a = audioRef.current;
+      if (a) {
+        a.currentTime = 0;
+        a.play().catch(() => {});
+      }
+    } else {
+      setSelectedId(id);
+    }
+  }, []);
+
   const playById = useCallback((id: string) => {
     setView('list');
     setFilter('');
@@ -573,7 +604,9 @@ export function CurationPage() {
                   : '🔁 評価するまでループ中'
                 : waitRemaining !== null
                   ? `⏳ 評価待ち 残り ${waitRemaining}s`
-                  : '▶ 再生中…'}
+                  : playing
+                    ? '▶ 再生中…'
+                    : '■ 停止中（クリック/Spaceで再生）'}
             </div>
           </div>
         </div>
@@ -834,7 +867,7 @@ export function CurationPage() {
                     <tr
                       key={it.id}
                       className={`${i === selIndex ? 'sel' : ''} r${it.rating}`}
-                      onClick={() => setSelectedId(it.id)}
+                      onClick={() => selectOrReplay(it.id)}
                     >
                       <td className="rate">
                         {[1, 2, 3].map((v) => (
