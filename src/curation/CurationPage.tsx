@@ -41,7 +41,7 @@ const DEFAULT_PREFS: Prefs = {
   quietThresh: 0.02,
   wheelRate: true,
   defaultOkOnPass: true,
-  ratingAdvances: true,
+  ratingAdvances: false, // 既定: 評価しても待機ON（評価しても即送りしない）
   ratingFilter: [], // empty = show all; press chips to show only those
   mode: 'copy',
   minRating: 3,
@@ -573,6 +573,21 @@ export function CurationPage() {
               再生終了から<b>この間隔</b>で自動的に次へ進みます（＝ながら評価のテンポ）。<b>手動の送りには無関係</b>。間隔を長くするほど作業中の負担が減ります。
             </p>
           </div>
+
+          <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="評価しても即送りせず間隔まで待つ。">
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                disabled={!prefs.autoAdvance}
+                checked={!prefs.ratingAdvances}
+                onChange={(e) => p({ ratingAdvances: !e.target.checked })}
+              />
+              評価しても待機
+            </label>
+            <p className="opt-desc">
+              ONだと評価しても即送りせず、間隔が来るまで留まります（作業中の進みすぎ防止）。OFFなら評価した瞬間に次へ。
+            </p>
+          </div>
         </div>
 
         <details className="cura-advanced">
@@ -591,19 +606,6 @@ export function CurationPage() {
                 無操作は自動で普
               </label>
               <p className="opt-desc">自動送りの間隔が過ぎても未評価だった音声に、自動で「普(2)」を付けて次へ。良し悪しだけ手で付ければOKに。</p>
-            </div>
-
-            <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="評価しても即送りせず間隔まで待つ。">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  disabled={!prefs.autoAdvance}
-                  checked={!prefs.ratingAdvances}
-                  onChange={(e) => p({ ratingAdvances: !e.target.checked })}
-                />
-                評価しても待機
-              </label>
-              <p className="opt-desc">通常は評価した瞬間に次へ進みます。ONだと評価しても進まず、間隔が来るまで留まります（進みすぎ防止）。</p>
             </div>
 
             <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="評価待ちの間、その音声をループ再生。">
