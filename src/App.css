@@ -108,7 +108,7 @@ textarea {
 .gen-grid {
   display: grid;
   /* Left = settings/text/emoji, right = params; output spans full width below. */
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas:
     "config params"
     "output output";
