@@ -585,6 +585,28 @@ button.reset:hover {
 .toolbar .filter {
   width: 240px;
 }
+.cura-settings {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 12px;
+  margin-bottom: 10px;
+}
+.cura-settings > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cura-settings-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin-top: 8px;
+}
+.cura-settings-body .checkbox {
+  margin-bottom: 0;
+}
 .grow {
   flex: 1;
 }

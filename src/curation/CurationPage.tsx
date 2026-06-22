@@ -16,28 +16,73 @@ const OVERSCAN = 8;
 const RATE_LABEL: Record<number, string> = { 1: '✕', 2: '△', 3: '◎' };
 const RATE_NAME: Record<number, string> = { 1: '不可', 2: '普', 3: '良' };
 
+/** Playback / evaluation preferences (persisted to localStorage). */
+interface Prefs {
+  autoAdvance: boolean;
+  advanceDelay: number;
+  randomMode: boolean;
+  loopUntilRated: boolean;
+  autoSkipQuiet: boolean;
+  quietThresh: number;
+  wheelRate: boolean;
+  defaultOkOnPass: boolean;
+  skipRated: boolean;
+  mode: 'copy' | 'move';
+  minRating: number;
+}
+const DEFAULT_PREFS: Prefs = {
+  autoAdvance: true,
+  advanceDelay: 10,
+  randomMode: false,
+  loopUntilRated: false,
+  autoSkipQuiet: false,
+  quietThresh: 0.02,
+  wheelRate: true,
+  defaultOkOnPass: true,
+  skipRated: false,
+  mode: 'copy',
+  minRating: 3,
+};
+const PREFS_KEY = 'irodori-tts-curation-prefs-v1';
+function loadPrefs(): Prefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PREFS;
+}
+
 export function CurationPage() {
   const { root, items, scanning, loadingMeta, error, pick, setItems } = useDirectoryScan();
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
+  const p = (patch: Partial<Prefs>) => setPrefs((s) => ({ ...s, ...patch }));
+
   const [selected, setSelected] = useState(0);
-  const [autoPlay, setAutoPlay] = useState(true);
-  const [advanceDelay, setAdvanceDelay] = useState(1.5);
-  const [randomMode, setRandomMode] = useState(false);
-  const [loopUntilRated, setLoopUntilRated] = useState(false);
-  const [autoSkipQuiet, setAutoSkipQuiet] = useState(false);
-  const [quietThresh, setQuietThresh] = useState(0.02);
   const [filter, setFilter] = useState('');
-  const [mode, setMode] = useState<'copy' | 'move'>('copy');
-  const [minRating, setMinRating] = useState(3);
   const [view, setView] = useState<'list' | 'analysis'>('list');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [folderSel, setFolderSel] = useState<string | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(600);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const playerWrapRef = useRef<HTMLDivElement | null>(null);
   const advanceTimer = useRef<number | null>(null);
-  const currentIdRef = useRef<string | null>(null);
+  const currentRef = useRef<AudioItem | null>(null);
+  const itemsRef = useRef<AudioItem[]>(items);
+  const lastWheel = useRef<{ id: string | null; r: Rating }>({ id: null, r: 0 });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      /* ignore */
+    }
+  }, [prefs]);
 
   const folders = useMemo(() => {
     const map = new Map<string, number>();
@@ -66,7 +111,14 @@ export function CurationPage() {
 
   const selIndex = Math.min(selected, Math.max(0, filtered.length - 1));
   const current: AudioItem | null = filtered[selIndex] ?? null;
-  const transferCount = items.filter((it) => it.rating >= minRating && it.rating > 0).length;
+  const transferCount = items.filter((it) => it.rating >= prefs.minRating && it.rating > 0).length;
+
+  useEffect(() => {
+    currentRef.current = current;
+  }, [current]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   // ---- Virtualized window. ----
   const maxScroll = Math.max(0, filtered.length * ROW_H - viewH);
@@ -108,19 +160,29 @@ export function CurationPage() {
     [setItems],
   );
 
+  // Advance, optionally skipping already-rated items.
   const goNext = useCallback(() => {
     setSelected((s) => {
-      const n = filtered.length;
-      if (n <= 1) return Math.min(s, Math.max(0, n - 1));
-      if (randomMode) {
-        const cur = Math.min(s, n - 1);
+      const arr = filtered;
+      const n = arr.length;
+      if (n === 0) return 0;
+      const cur = Math.min(s, n - 1);
+      if (prefs.skipRated) {
+        const unrated = arr.map((it, i) => (it.rating === 0 && i !== cur ? i : -1)).filter((i) => i >= 0);
+        if (unrated.length === 0) return cur;
+        if (prefs.randomMode) return unrated[Math.floor(Math.random() * unrated.length)];
+        const fwd = unrated.find((i) => i > cur);
+        return fwd !== undefined ? fwd : cur;
+      }
+      if (n <= 1) return cur;
+      if (prefs.randomMode) {
         let r = cur;
         while (r === cur) r = Math.floor(Math.random() * n);
         return r;
       }
-      return Math.min(s + 1, n - 1);
+      return Math.min(cur + 1, n - 1);
     });
-  }, [filtered.length, randomMode]);
+  }, [filtered, prefs.skipRated, prefs.randomMode]);
 
   const pickFolder = (dir: string | null) => {
     setFolderSel(dir);
@@ -133,24 +195,22 @@ export function CurationPage() {
     setSelected(0);
   };
 
-  // Auto-advance after a grace delay so you can rate / go back before it moves.
+  // Auto-advance after a grace delay; an untouched clip auto-gets 普(2).
   const handleEnded = useCallback(() => {
-    if (!autoPlay) return;
-    const id = current?.id ?? null;
+    if (!prefs.autoAdvance) return;
+    const id = currentRef.current?.id ?? null;
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
     advanceTimer.current = window.setTimeout(
       () => {
-        // Skip if the user navigated away during the grace window.
-        if (currentIdRef.current === id) goNext();
+        if (currentRef.current?.id !== id) return; // user navigated away
+        const live = itemsRef.current.find((it) => it.id === id);
+        if (prefs.defaultOkOnPass && live && live.rating === 0) setRating(live, 2);
+        goNext();
       },
-      Math.max(0, advanceDelay) * 1000,
+      Math.max(0, prefs.advanceDelay) * 1000,
     );
-  }, [autoPlay, advanceDelay, current, goNext]);
+  }, [prefs.autoAdvance, prefs.advanceDelay, prefs.defaultOkOnPass, goNext, setRating]);
 
-  // Track current id for the grace-window guard; clear any pending timer on unmount.
-  useEffect(() => {
-    currentIdRef.current = current?.id ?? null;
-  }, [current]);
   useEffect(
     () => () => {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
@@ -161,24 +221,39 @@ export function CurationPage() {
   // Skip clips quieter than the threshold (failed/silent generations).
   const handlePeak = useCallback(
     (peak: number) => {
-      if (autoSkipQuiet && peak < quietThresh) goNext();
+      if (prefs.autoSkipQuiet && peak < prefs.quietThresh) goNext();
     },
-    [autoSkipQuiet, quietThresh, goNext],
+    [prefs.autoSkipQuiet, prefs.quietThresh, goNext],
   );
 
-  // Jump to an item by id (from the analysis view) and show it in the list.
-  const playById = useCallback(
-    (id: string) => {
-      setView('list');
-      setFilter('');
-      setFolderSel(null);
-      const idx = items.findIndex((it) => it.id === id);
-      if (idx >= 0) setSelected(idx);
-    },
-    [items],
-  );
+  // Wheel-to-rate over the player: up = 良(3), down = 不可(1). Works even when
+  // another app is focused, as long as the browser window is hovered.
+  useEffect(() => {
+    const el = playerWrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!prefs.wheelRate) return;
+      e.preventDefault();
+      const cur = currentRef.current;
+      if (!cur) return;
+      const r: Rating = e.deltaY < 0 ? 3 : 1;
+      if (lastWheel.current.id === cur.id && lastWheel.current.r === r) return; // dedupe burst
+      lastWheel.current = { id: cur.id, r };
+      setRating(cur, r);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [prefs.wheelRate, setRating]);
 
-  // Keyboard shortcuts (1/2/3 rate, 0 clears; rating never auto-advances).
+  const playById = useCallback((id: string) => {
+    setView('list');
+    setFilter('');
+    setFolderSel(null);
+    const idx = itemsRef.current.findIndex((it) => it.id === id);
+    if (idx >= 0) setSelected(idx);
+  }, []);
+
+  // Keyboard: 1/2/3 rate, 0 clears (rating never auto-advances).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -221,7 +296,7 @@ export function CurationPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [current, clampSel, setRating, goNext]);
 
-  // MediaSession: background control via media keys (audio must be playing).
+  // MediaSession: background control via media keys.
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
@@ -235,15 +310,15 @@ export function CurationPage() {
     set('play', () => audioRef.current?.play().catch(() => {}));
     set('pause', () => audioRef.current?.pause());
     set('previoustrack', () => setSelected((s) => clampSel(s - 1)));
-    set('nexttrack', () => setSelected((s) => clampSel(s + 1)));
-    set('seekforward', () => setRating(current, 3)); // 良
-    set('seekbackward', () => setRating(current, 1)); // 不可
+    set('nexttrack', () => goNext());
+    set('seekforward', () => setRating(currentRef.current, 3));
+    set('seekbackward', () => setRating(currentRef.current, 1));
     return () => {
       (['play', 'pause', 'previoustrack', 'nexttrack', 'seekforward', 'seekbackward'] as const).forEach(
         (a) => set(a, null),
       );
     };
-  }, [current, clampSel, setRating]);
+  }, [clampSel, setRating, goNext]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator) || !current) return;
@@ -263,13 +338,13 @@ export function CurationPage() {
     setBusy(true);
     setResult(null);
     try {
-      const r = await transferRated(root, items, minRating, mode);
+      const r = await transferRated(root, items, prefs.minRating, prefs.mode);
       setResult(
-        `${mode === 'move' ? '移動' : 'コピー'} ${r.moved} 件完了` +
+        `${prefs.mode === 'move' ? '移動' : 'コピー'} ${r.moved} 件完了` +
           (r.errors.length ? ` / エラー ${r.errors.length} 件` : ''),
       );
-      if (mode === 'move' && r.moved > 0) {
-        setItems((arr) => arr.filter((it) => !(it.rating >= minRating && it.rating > 0)));
+      if (prefs.mode === 'move' && r.moved > 0) {
+        setItems((arr) => arr.filter((it) => !(it.rating >= prefs.minRating && it.rating > 0)));
         setSelected((s) => clampSel(s));
       }
     } catch (e) {
@@ -312,56 +387,13 @@ export function CurationPage() {
             setSelected(0);
           }}
         />
-        <label className="checkbox">
-          <input type="checkbox" checked={autoPlay} onChange={(e) => setAutoPlay(e.target.checked)} />
-          自動送り
-        </label>
-        {autoPlay && (
-          <label className="checkbox" title="再生終了から次へ進むまでの猶予">
-            猶予
-            <input
-              type="number"
-              className="thresh"
-              min={0}
-              max={10}
-              step={0.5}
-              value={advanceDelay}
-              onChange={(e) => setAdvanceDelay(Math.max(0, Number(e.target.value)))}
-            />
-            秒
-          </label>
-        )}
-        <label className="checkbox">
-          <input type="checkbox" checked={randomMode} onChange={(e) => setRandomMode(e.target.checked)} />
-          ランダム
-        </label>
-        <label className="checkbox">
-          <input type="checkbox" checked={loopUntilRated} onChange={(e) => setLoopUntilRated(e.target.checked)} />
-          評価までループ
-        </label>
-        <label className="checkbox">
-          <input type="checkbox" checked={autoSkipQuiet} onChange={(e) => setAutoSkipQuiet(e.target.checked)} />
-          無音スキップ
-        </label>
-        {autoSkipQuiet && (
-          <input
-            type="number"
-            className="thresh"
-            min={0}
-            max={0.5}
-            step={0.005}
-            value={quietThresh}
-            title="この振幅未満を無音として次へ"
-            onChange={(e) => setQuietThresh(Number(e.target.value))}
-          />
-        )}
         <span className="grow" />
-        <select value={minRating} onChange={(e) => setMinRating(Number(e.target.value))}>
+        <select value={prefs.minRating} onChange={(e) => p({ minRating: Number(e.target.value) })}>
           <option value={3}>良のみ</option>
           <option value={2}>普以上</option>
           <option value={1}>評価済すべて</option>
         </select>
-        <select value={mode} onChange={(e) => setMode(e.target.value as 'copy' | 'move')}>
+        <select value={prefs.mode} onChange={(e) => p({ mode: e.target.value as 'copy' | 'move' })}>
           <option value="copy">selected/ へコピー</option>
           <option value="move">selected/ へ移動</option>
         </select>
@@ -369,6 +401,67 @@ export function CurationPage() {
           {transferCount} 件を実行
         </button>
       </div>
+
+      <details className="cura-settings" open>
+        <summary>再生・評価 設定</summary>
+        <div className="cura-settings-body">
+          <label className="checkbox">
+            <input type="checkbox" checked={prefs.autoAdvance} onChange={(e) => p({ autoAdvance: e.target.checked })} />
+            自動送り
+          </label>
+          {prefs.autoAdvance && (
+            <label className="checkbox" title="再生終了から次へ進むまでの猶予">
+              猶予
+              <input
+                type="number"
+                className="thresh"
+                min={0}
+                max={60}
+                step={1}
+                value={prefs.advanceDelay}
+                onChange={(e) => p({ advanceDelay: Math.max(0, Number(e.target.value)) })}
+              />
+              秒
+            </label>
+          )}
+          <label className="checkbox">
+            <input type="checkbox" checked={prefs.randomMode} onChange={(e) => p({ randomMode: e.target.checked })} />
+            ランダム
+          </label>
+          <label className="checkbox">
+            <input type="checkbox" checked={prefs.skipRated} onChange={(e) => p({ skipRated: e.target.checked })} />
+            評価済みをスキップ
+          </label>
+          <label className="checkbox">
+            <input type="checkbox" checked={prefs.loopUntilRated} onChange={(e) => p({ loopUntilRated: e.target.checked })} />
+            評価までループ
+          </label>
+          <label className="checkbox">
+            <input type="checkbox" checked={prefs.wheelRate} onChange={(e) => p({ wheelRate: e.target.checked })} />
+            スクロールで評価
+          </label>
+          <label className="checkbox">
+            <input type="checkbox" checked={prefs.defaultOkOnPass} onChange={(e) => p({ defaultOkOnPass: e.target.checked })} />
+            無操作は自動で普
+          </label>
+          <label className="checkbox">
+            <input type="checkbox" checked={prefs.autoSkipQuiet} onChange={(e) => p({ autoSkipQuiet: e.target.checked })} />
+            無音スキップ
+          </label>
+          {prefs.autoSkipQuiet && (
+            <input
+              type="number"
+              className="thresh"
+              min={0}
+              max={0.5}
+              step={0.005}
+              value={prefs.quietThresh}
+              title="この振幅未満を無音として次へ"
+              onChange={(e) => p({ quietThresh: Number(e.target.value) })}
+            />
+          )}
+        </div>
+      </details>
 
       {error && <p className="warn">{error}</p>}
       {result && <p className="info">{result}</p>}
@@ -380,14 +473,16 @@ export function CurationPage() {
         </p>
       )}
 
-      <AudioPlayer
-        item={current}
-        autoPlay={autoPlay}
-        loop={loopUntilRated && !!current && current.rating === 0}
-        onEnded={handleEnded}
-        onPeak={handlePeak}
-        audioRef={audioRef}
-      />
+      <div className="player-wrap" ref={playerWrapRef}>
+        <AudioPlayer
+          item={current}
+          autoPlay={prefs.autoAdvance}
+          loop={prefs.loopUntilRated && !!current && current.rating === 0}
+          onEnded={handleEnded}
+          onPeak={handlePeak}
+          audioRef={audioRef}
+        />
+      </div>
 
       {view === 'analysis' ? (
         <AnalysisView items={items} onPlay={playById} />
@@ -488,7 +583,8 @@ export function CurationPage() {
       )}
 
       <p className="hint">
-        ショートカット: Space=再生/停止 · ↑↓=移動 · 1=不可 / 2=普 / 3=良 · 0=クリア · Enter=次
+        ショートカット: Space=再生/停止 · ↑↓=移動 · 1=不可 / 2=普 / 3=良 · 0=クリア · Enter=次 ·
+        プレイヤー上でホイール上=良 / 下=不可
         <br />
         バックグラウンド（メディアキー/イヤホン）: ⏯=再生停止 · ⏮⏭=前/次 · 早送り=良・巻戻し=不可
       </p>
