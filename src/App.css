@@ -682,8 +682,11 @@ button.reset:hover {
   color: var(--muted);
 }
 .grid td {
-  padding: 6px 8px;
+  height: 30px; /* fixed row height for virtualization (ROW_H) */
+  padding: 0 8px;
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
 }
 .grid tr {
   cursor: pointer;

@@ -10,8 +10,11 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
 const dirOf = (relPath: string) =>
   relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '(ルート)';
 
+const ROW_H = 30; // px per row, must match .grid td height for virtualization
+const OVERSCAN = 8;
+
 export function CurationPage() {
-  const { root, items, scanning, error, pick, setItems } = useDirectoryScan();
+  const { root, items, scanning, loadingMeta, error, pick, setItems } = useDirectoryScan();
   const [selected, setSelected] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
   const [randomMode, setRandomMode] = useState(false);
@@ -20,7 +23,10 @@ export function CurationPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [folderSel, setFolderSel] = useState<string | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewH, setViewH] = useState(600);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
 
   // Distinct folders (with counts) discovered under the opened root.
   const folders = useMemo(() => {
@@ -56,6 +62,40 @@ export function CurationPage() {
   const selIndex = Math.min(selected, Math.max(0, filtered.length - 1));
   const current: AudioItem | null = filtered[selIndex] ?? null;
   const keptCount = items.filter((it) => it.status === 'keep').length;
+
+  // ---- Virtualized window: only render rows near the viewport. ----
+  const maxScroll = Math.max(0, filtered.length * ROW_H - viewH);
+  const st = Math.min(scrollTop, maxScroll); // clamp so a stale scrollTop can't blank the list
+  const vStart = Math.max(0, Math.floor(st / ROW_H) - OVERSCAN);
+  const vEnd = Math.min(filtered.length, Math.ceil((st + viewH) / ROW_H) + OVERSCAN);
+  const visible = filtered.slice(vStart, vEnd);
+  const topPad = vStart * ROW_H;
+  const bottomPad = Math.max(0, (filtered.length - vEnd) * ROW_H);
+
+  // Track the scroll container height (ResizeObserver fires once on observe).
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewH(el.clientHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Reset scroll to top when the visible set changes (the scroll event then
+  // updates scrollTop state — no setState needed here).
+  useEffect(() => {
+    if (wrapRef.current) wrapRef.current.scrollTop = 0;
+  }, [filter, effFolder]);
+
+  // Keep the selected row visible when navigating by keyboard/auto-advance.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const top = selIndex * ROW_H;
+    const bottom = top + ROW_H;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
+  }, [selIndex]);
 
   const setStatus = useCallback(
     (item: AudioItem | null, status: AudioItem['status']) => {
@@ -253,6 +293,12 @@ export function CurationPage() {
       {error && <p className="warn">{error}</p>}
       {result && <p className="info">{result}</p>}
       {scanning && <p className="info">走査中…</p>}
+      {root && !scanning && (
+        <p className="info">
+          {filtered.length} / {items.length} 件
+          {loadingMeta > 0 && `（パラメータ読込中… 残り ${loadingMeta}）`}
+        </p>
+      )}
 
       <AudioPlayer item={current} autoPlay={autoPlay} onEnded={handleEnded} audioRef={audioRef} />
 
@@ -280,7 +326,7 @@ export function CurationPage() {
           </aside>
         )}
 
-        <div className="table-wrap">
+        <div className="table-wrap" ref={wrapRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="grid">
           <thead>
             <tr>
@@ -300,65 +346,53 @@ export function CurationPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((it, i) => {
-              const dir = it.relPath.includes('/')
-                ? it.relPath.slice(0, it.relPath.lastIndexOf('/'))
-                : '(ルート)';
-              const prevDir =
-                i > 0 && filtered[i - 1].relPath.includes('/')
-                  ? filtered[i - 1].relPath.slice(0, filtered[i - 1].relPath.lastIndexOf('/'))
-                  : i > 0
-                    ? '(ルート)'
-                    : null;
-              const showGroup = dir !== prevDir;
-              return [
-                showGroup && (
-                  <tr key={`g-${it.id}`} className="group">
-                    <td colSpan={13}>📁 {dir}</td>
-                  </tr>
-                ),
-                (<tr
-                key={it.id}
-                className={`${i === selIndex ? 'sel' : ''} ${it.status}`}
-                onClick={() => setSelected(i)}
-              >
-                <td>
-                  <button
-                    className="mini keep"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setStatus(it, it.status === 'keep' ? 'none' : 'keep');
-                    }}
-                  >
-                    {it.status === 'keep' ? '★' : '☆'}
-                  </button>
-                  <button
-                    className="mini reject"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setStatus(it, it.status === 'reject' ? 'none' : 'reject');
-                    }}
-                  >
-                    ✕
-                  </button>
-                </td>
-                <td className="num">{fmt(it.meta?.index)}</td>
-                <td className="text" title={it.meta?.text ?? ''}>{it.meta?.text ?? '—'}</td>
-                <td>{it.meta?.emoji ?? '—'}</td>
-                <td className="num">{fmt(it.meta?.seed)}</td>
-                <td className="num">{fmt(it.meta?.numSteps)}</td>
-                <td className="num">{fmt(it.meta?.cfgScaleText)}</td>
-                <td className="num">{fmt(it.meta?.cfgScaleCaption)}</td>
-                <td className="num">{fmt(it.meta?.cfgScaleSpeaker)}</td>
-                <td className="num">{fmt(it.meta?.durationScale)}</td>
-                <td className="num">{fmt(it.meta?.swayCoeff)}</td>
-                <td className="num">{fmt(it.meta?.truncationFactor)}</td>
-                <td className="ref" title={it.meta?.refWav ?? ''}>
-                  {it.meta?.refWav ? it.meta.refWav.split(/[/\\]/).pop() : it.meta?.refMode === 'no-ref' ? 'no-ref' : '—'}
-                </td>
-              </tr>),
-              ];
+            {topPad > 0 && <tr style={{ height: topPad }} aria-hidden />}
+            {visible.map((it, vi) => {
+              const i = vStart + vi;
+              return (
+                <tr
+                  key={it.id}
+                  className={`${i === selIndex ? 'sel' : ''} ${it.status}`}
+                  onClick={() => setSelected(i)}
+                >
+                  <td>
+                    <button
+                      className="mini keep"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStatus(it, it.status === 'keep' ? 'none' : 'keep');
+                      }}
+                    >
+                      {it.status === 'keep' ? '★' : '☆'}
+                    </button>
+                    <button
+                      className="mini reject"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStatus(it, it.status === 'reject' ? 'none' : 'reject');
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                  <td className="num">{fmt(it.meta?.index)}</td>
+                  <td className="text" title={it.meta?.text ?? ''}>{it.meta?.text ?? '—'}</td>
+                  <td>{it.meta?.emoji ?? '—'}</td>
+                  <td className="num">{fmt(it.meta?.seed)}</td>
+                  <td className="num">{fmt(it.meta?.numSteps)}</td>
+                  <td className="num">{fmt(it.meta?.cfgScaleText)}</td>
+                  <td className="num">{fmt(it.meta?.cfgScaleCaption)}</td>
+                  <td className="num">{fmt(it.meta?.cfgScaleSpeaker)}</td>
+                  <td className="num">{fmt(it.meta?.durationScale)}</td>
+                  <td className="num">{fmt(it.meta?.swayCoeff)}</td>
+                  <td className="num">{fmt(it.meta?.truncationFactor)}</td>
+                  <td className="ref" title={it.meta?.refWav ?? ''}>
+                    {it.meta?.refWav ? it.meta.refWav.split(/[/\\]/).pop() : it.meta?.refMode === 'no-ref' ? 'no-ref' : '—'}
+                  </td>
+                </tr>
+              );
             })}
+            {bottomPad > 0 && <tr style={{ height: bottomPad }} aria-hidden />}
           </tbody>
         </table>
         {root && !scanning && filtered.length === 0 && (
