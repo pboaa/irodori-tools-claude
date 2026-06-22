@@ -16,6 +16,7 @@ const OVERSCAN = 8;
 const RATE_LABEL: Record<number, string> = { 1: '✕', 2: '△', 3: '◎' };
 const RATE_NAME: Record<number, string> = { 1: '不可', 2: '普', 3: '良' };
 const delayLabel = (s: number) => (s >= 60 && s % 60 === 0 ? `${s / 60}分` : `${s}秒`);
+const LOOP_CONFIRM_MS = 1500; // loop mode: settle window after a rating before advancing
 
 /** How playback advances to the next clip. */
 type AdvanceMode = 'manual' | 'auto' | 'loop';
@@ -243,13 +244,29 @@ export function CurationPage() {
       if (!item) return;
       setItems((arr) => arr.map((it) => (it.id === item.id ? { ...it, rating: r } : it)));
       void writeRating(item, r);
-      if (r > 0) {
-        if (prefs.advanceMode === 'loop') {
-          audioRef.current?.pause();
-          doAdvance();
-        } else if (prefs.advanceMode === 'auto' && prefs.ratingAdvances && waitingId.current === item.id) {
-          doAdvance();
+      if (prefs.advanceMode === 'loop') {
+        // Start (or reset) a short 確定待ち so wheel steps can be adjusted before
+        // advancing. Each change resets it; clearing (0) cancels.
+        if (advanceTimer.current) {
+          clearTimeout(advanceTimer.current);
+          advanceTimer.current = null;
         }
+        if (r > 0) {
+          waitingId.current = item.id;
+          waitUntil.current = Date.now() + LOOP_CONFIRM_MS;
+          advanceTimer.current = window.setTimeout(() => {
+            audioRef.current?.pause();
+            doAdvance();
+          }, LOOP_CONFIRM_MS);
+        } else {
+          waitingId.current = null;
+          waitUntil.current = 0;
+          setWaitRemaining(null);
+        }
+        return;
+      }
+      if (r > 0 && prefs.advanceMode === 'auto' && prefs.ratingAdvances && waitingId.current === item.id) {
+        doAdvance();
       }
     },
     [setItems, prefs.advanceMode, prefs.ratingAdvances, doAdvance],
@@ -484,12 +501,14 @@ export function CurationPage() {
                   {!prefs.ratingAdvances && <> ／ 評価しても<b>待機</b>（テンポ一定）</>}
                 </>
               )}
-              {prefs.advanceMode === 'loop' && <>評価するまで<b>ループ</b>（評価したら止めて即次へ）</>}
+              {prefs.advanceMode === 'loop' && <>評価するまで<b>ループ</b>（評価→約1.5秒で次・その間に修正可）</>}
               {prefs.advanceMode === 'manual' && <>手動送り（自分で次へ）</>}
             </div>
             <div className="nagara-count">
               {prefs.advanceMode === 'loop'
-                ? '🔁 評価するまでループ中'
+                ? waitRemaining !== null
+                  ? `✓ 確定まで ${waitRemaining}s（スクロールで修正可）`
+                  : '🔁 評価するまでループ中'
                 : waitRemaining !== null
                   ? `⏳ 評価待ち 残り ${waitRemaining}s`
                   : '▶ 再生中…'}
@@ -599,7 +618,7 @@ export function CurationPage() {
             </div>
             <p className="opt-desc">
               <b>手動</b>: 自分で送る（再生は1回）。<b>自動送り</b>: 再生終了→間隔をおいて次へ（無評価は普）。
-              <b>評価するまでループ</b>: 評価するまで繰り返し再生し、<b>評価したら止めて即次へ</b>（間隔・自動の普付与なし）。
+              <b>評価するまでループ</b>: 評価するまで繰り返し再生。<b>評価したら約1.5秒後に次へ</b>（その間にスクロールで修正可）。間隔・自動の普付与なし。
             </p>
           </div>
 
@@ -686,7 +705,9 @@ export function CurationPage() {
 
       <div className="player-wrap" ref={playerWrapRef}>
         {prefs.advanceMode === 'loop' && current ? (
-          <div className="wait-badge">🔁 評価するまでループ（評価で次へ）</div>
+          <div className="wait-badge">
+            {waitRemaining !== null ? `✓ 確定まで ${waitRemaining}s（スクロールで修正可）` : '🔁 評価するまでループ'}
+          </div>
         ) : (
           waitRemaining !== null && <div className="wait-badge">⏳ 評価待ち 残り {waitRemaining}s</div>
         )}
