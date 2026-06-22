@@ -226,13 +226,14 @@ export function CurationPage() {
     [prefs.autoSkipQuiet, prefs.quietThresh, goNext],
   );
 
-  // Wheel-to-rate over the player: up = 良(3), down = 不可(1). Works even when
-  // another app is focused, as long as the browser window is hovered.
+  // Wheel-to-rate over the player: up = 良(3), down = 不可(1). Registered on
+  // window (passive:false) so preventDefault reliably stops the page from
+  // scrolling; only acts when the cursor is over the player area.
   useEffect(() => {
-    const el = playerWrapRef.current;
-    if (!el) return;
     const onWheel = (e: WheelEvent) => {
       if (!prefs.wheelRate) return;
+      const el = playerWrapRef.current;
+      if (!el || !(e.target instanceof Node) || !el.contains(e.target)) return;
       e.preventDefault();
       const cur = currentRef.current;
       if (!cur) return;
@@ -241,8 +242,8 @@ export function CurationPage() {
       lastWheel.current = { id: cur.id, r };
       setRating(cur, r);
     };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
   }, [prefs.wheelRate, setRating]);
 
   const playById = useCallback((id: string) => {
