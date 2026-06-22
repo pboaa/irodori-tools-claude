@@ -513,7 +513,43 @@ export function CurationPage() {
       <details className="cura-settings" open>
         <summary>再生・評価 設定</summary>
         <div className="cura-settings-body">
-          <div className="opt" title="再生が終わったら、評価待ちの間隔をおいて自動で次の音声へ進みます。">
+          <div className="opt-group-label">共通（手動操作でも有効）</div>
+
+          <div className="opt opt-wide" title="一覧と送り対象に含める評価を選びます。">
+            <div className="opt-head">
+              <span className="opt-label">表示する評価</span>
+              <span className="rate-filter">
+                {([[0, '未'], [1, '不可'], [2, '普'], [3, '良']] as const).map(([v, l]) => (
+                  <button
+                    key={v}
+                    className={`chip-toggle rf${v} ${prefs.ratingFilter.includes(v) ? 'on' : 'off'}`}
+                    onClick={() => toggleRatingFilter(v)}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </span>
+            </div>
+            <p className="opt-desc">
+              押した評価<b>だけ</b>を一覧・再生対象に（何も押さなければ全部）。「良」＝聴き返し、「良＋不可」＝二重チェック、「未」＝未評価のみ。0件なら再生しません。
+            </p>
+          </div>
+
+          <div className="opt" title="プレイヤー上（非アクティブ時は画面全体）でホイール評価。">
+            <label className="checkbox">
+              <input type="checkbox" checked={prefs.wheelRate} onChange={(e) => p({ wheelRate: e.target.checked })} />
+              スクロールで評価
+            </label>
+            <p className="opt-desc">
+              ホイール 上=良 / 下=不可（良→下で普、不可→上で普）。<b>手動でも自動送り中でも有効</b>。非アクティブでも画面全体で効きます（最小化時は不可）。
+            </p>
+          </div>
+
+          <div className="opt-group-label">
+            自動送り（ながら評価）専用 ― 手動の送り（Enter / ↑↓ / クリック）には影響しません
+          </div>
+
+          <div className="opt opt-wide" title="再生終了後、間隔をおいて自動で次へ。">
             <div className="opt-head">
               <label className="checkbox">
                 <input type="checkbox" checked={prefs.autoAdvance} onChange={(e) => p({ autoAdvance: e.target.checked })} />
@@ -534,102 +570,90 @@ export function CurationPage() {
               )}
             </div>
             <p className="opt-desc">
-              再生終了後、間隔をおいて自動で次へ。間隔を長くするほど作業中の評価負担が減ります（聴いて気づいた時だけ評価）。
-            </p>
-          </div>
-
-          <div className="opt" title="評価しても即座に次へ行かず、間隔まで待ちます。">
-            <label className="checkbox">
-              <input type="checkbox" checked={!prefs.ratingAdvances} onChange={(e) => p({ ratingAdvances: !e.target.checked })} />
-              評価しても待機
-            </label>
-            <p className="opt-desc">
-              通常は評価した瞬間に次へ進みます。ONにすると評価しても進まず、自動送りの間隔が来るまで留まります（作業中の進みすぎ防止）。
-            </p>
-          </div>
-
-          <div className="opt" title="評価待ちが経過しても未評価なら普(2)を付けて次へ。">
-            <label className="checkbox">
-              <input type="checkbox" checked={prefs.defaultOkOnPass} onChange={(e) => p({ defaultOkOnPass: e.target.checked })} />
-              無操作は自動で普
-            </label>
-            <p className="opt-desc">
-              自動送りの間隔が過ぎても未評価だった音声に、自動で「普(2)」を付けて次へ進みます。良し悪しだけ手で付ければOKに。
-            </p>
-          </div>
-
-          <div className="opt" title="評価待ちの間、その音声を繰り返し再生します。">
-            <label className="checkbox">
-              <input type="checkbox" checked={prefs.loopUntilRated} onChange={(e) => p({ loopUntilRated: e.target.checked })} />
-              評価待ちでループ
-            </label>
-            <p className="opt-desc">評価待ちの間、その音声をループ再生し続けます（評価するか間隔が来たら次へ）。</p>
-          </div>
-
-          <div className="opt" title="プレイヤー上（非アクティブ時は画面全体）でホイール評価。">
-            <label className="checkbox">
-              <input type="checkbox" checked={prefs.wheelRate} onChange={(e) => p({ wheelRate: e.target.checked })} />
-              スクロールで評価
-            </label>
-            <p className="opt-desc">
-              ホイール上=良 / 下=不可（良から下で普、不可から上で普に戻せる）。ブラウザが<b>非アクティブでも画面全体</b>で効くので、別アプリ作業中でもホバーして評価できます（最小化時は不可）。
-            </p>
-          </div>
-
-          <div className="opt" title="次へ進むとき順番ではなくランダムに選びます。">
-            <label className="checkbox">
-              <input type="checkbox" checked={prefs.randomMode} onChange={(e) => p({ randomMode: e.target.checked })} />
-              ランダム再生
-            </label>
-            <p className="opt-desc">次へ進むとき順番ではなくランダムな音声を選びます（同じものは連続しません）。</p>
-          </div>
-
-          <div className="opt" title="音量が小さい（無音/失敗）音声を自動でスキップ。">
-            <div className="opt-head">
-              <label className="checkbox">
-                <input type="checkbox" checked={prefs.autoSkipQuiet} onChange={(e) => p({ autoSkipQuiet: e.target.checked })} />
-                無音スキップ
-              </label>
-              {prefs.autoSkipQuiet && (
-                <label className="opt-inline">
-                  閾値
-                  <input
-                    type="number"
-                    className="thresh"
-                    min={0}
-                    max={0.5}
-                    step={0.005}
-                    value={prefs.quietThresh}
-                    onChange={(e) => p({ quietThresh: Number(e.target.value) })}
-                  />
-                </label>
-              )}
-            </div>
-            <p className="opt-desc">
-              波形のピークが閾値未満（ほぼ無音＝生成失敗など）の音声を自動でスキップします。閾値が小さいほど厳しめ（既定 0.02）。
-            </p>
-          </div>
-
-          <div className="opt opt-wide" title="一覧と送り対象に含める評価を選びます。">
-            <div className="opt-head">
-              <span className="opt-label">表示する評価</span>
-              <span className="rate-filter">
-                {([[0, '未'], [1, '不可'], [2, '普'], [3, '良']] as const).map(([v, l]) => (
-                  <button
-                    key={v}
-                    className={`chip-toggle rf${v} ${prefs.ratingFilter.includes(v) ? 'on' : 'off'}`}
-                    onClick={() => toggleRatingFilter(v)}
-                  >
-                    {l}
-                  </button>
-                ))}
-              </span>
-            </div>
-            <p className="opt-desc">
-              押した評価<b>だけ</b>を一覧・再生対象にします（何も押さなければ全部表示）。例: 「良」＝良の聴き返し、「良＋不可」＝極端なものだけ二重チェック、「未」＝未評価のみ流す。該当が0件なら再生しません。
+              再生終了から<b>この間隔</b>で自動的に次へ進みます（＝ながら評価のテンポ）。<b>手動の送りには無関係</b>。間隔を長くするほど作業中の負担が減ります。
             </p>
           </div>
         </div>
+
+        <details className="cura-advanced">
+          <summary>詳細設定（あまり使わない）</summary>
+          <div className="cura-settings-body">
+            <div className="opt-group-label">自動送り中の挙動（自動送りONのときだけ働きます）</div>
+
+            <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="間隔が過ぎても未評価なら普(2)を付けて次へ。">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  disabled={!prefs.autoAdvance}
+                  checked={prefs.defaultOkOnPass}
+                  onChange={(e) => p({ defaultOkOnPass: e.target.checked })}
+                />
+                無操作は自動で普
+              </label>
+              <p className="opt-desc">自動送りの間隔が過ぎても未評価だった音声に、自動で「普(2)」を付けて次へ。良し悪しだけ手で付ければOKに。</p>
+            </div>
+
+            <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="評価しても即送りせず間隔まで待つ。">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  disabled={!prefs.autoAdvance}
+                  checked={!prefs.ratingAdvances}
+                  onChange={(e) => p({ ratingAdvances: !e.target.checked })}
+                />
+                評価しても待機
+              </label>
+              <p className="opt-desc">通常は評価した瞬間に次へ進みます。ONだと評価しても進まず、間隔が来るまで留まります（進みすぎ防止）。</p>
+            </div>
+
+            <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="評価待ちの間、その音声をループ再生。">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  disabled={!prefs.autoAdvance}
+                  checked={prefs.loopUntilRated}
+                  onChange={(e) => p({ loopUntilRated: e.target.checked })}
+                />
+                評価待ちでループ
+              </label>
+              <p className="opt-desc">評価待ちの間、その音声をループ再生し続けます（評価するか間隔が来たら次へ）。</p>
+            </div>
+
+            <div className="opt-group-label">送り順・その他</div>
+
+            <div className="opt" title="次へ進むとき順番ではなくランダムに選ぶ（手動の次送りにも適用）。">
+              <label className="checkbox">
+                <input type="checkbox" checked={prefs.randomMode} onChange={(e) => p({ randomMode: e.target.checked })} />
+                ランダム順
+              </label>
+              <p className="opt-desc">「次へ」がランダムな音声になります（同じものは連続しない）。手動の Enter / メディアキー送りにも適用。</p>
+            </div>
+
+            <div className="opt" title="音量が小さい（無音/失敗）音声を自動でスキップ。">
+              <div className="opt-head">
+                <label className="checkbox">
+                  <input type="checkbox" checked={prefs.autoSkipQuiet} onChange={(e) => p({ autoSkipQuiet: e.target.checked })} />
+                  無音スキップ
+                </label>
+                {prefs.autoSkipQuiet && (
+                  <label className="opt-inline">
+                    閾値
+                    <input
+                      type="number"
+                      className="thresh"
+                      min={0}
+                      max={0.5}
+                      step={0.005}
+                      value={prefs.quietThresh}
+                      onChange={(e) => p({ quietThresh: Number(e.target.value) })}
+                    />
+                  </label>
+                )}
+              </div>
+              <p className="opt-desc">波形のピークが閾値未満（ほぼ無音＝生成失敗など）の音声を自動でスキップ。閾値が小さいほど厳しめ（既定 0.02）。</p>
+            </div>
+          </div>
+        </details>
       </details>
 
       {error && <p className="warn">{error}</p>}
