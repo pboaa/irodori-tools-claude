@@ -4,19 +4,64 @@ import type { AudioItem } from '../types';
 interface Props {
   item: AudioItem | null;
   autoPlay: boolean;
+  /** Loop the clip (used for "loop until rated"). */
+  loop: boolean;
   onEnded: () => void;
+  /** Reports the decoded clip's peak amplitude (0..1) for quiet-skip. */
+  onPeak: (peak: number) => void;
   audioRef: RefObject<HTMLAudioElement | null>;
 }
 
-/** Audio bar that loads the current item's wav via a Blob URL. */
-export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
+let sharedCtx: AudioContext | null = null;
+function getCtx(): AudioContext {
+  if (!sharedCtx) sharedCtx = new AudioContext();
+  return sharedCtx;
+}
+
+/** Draw a min/max waveform and return the peak amplitude (0..1). */
+function drawWaveform(canvas: HTMLCanvasElement | null, buf: AudioBuffer): number {
+  const data = buf.getChannelData(0);
+  const W = canvas?.width ?? 600;
+  const H = canvas?.height ?? 48;
+  const ctx = canvas?.getContext('2d') ?? null;
+  if (ctx) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#5c7cfa';
+  }
+  const per = Math.max(1, Math.floor(data.length / W));
+  const mid = H / 2;
+  let peak = 0;
+  for (let x = 0; x < W; x++) {
+    let min = 1;
+    let max = -1;
+    const start = x * per;
+    const end = Math.min(data.length, start + per);
+    for (let i = start; i < end; i++) {
+      const v = data[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (-min > peak) peak = -min;
+    if (max > peak) peak = max;
+    if (ctx) {
+      const y1 = mid - max * mid;
+      const y2 = mid - min * mid;
+      ctx.fillRect(x, y1, 1, Math.max(1, y2 - y1));
+    }
+  }
+  return peak;
+}
+
+/** Audio bar: loads the current wav, draws its waveform, plays it. */
+export function AudioPlayer({ item, autoPlay, loop, onEnded, onPeak, audioRef }: Props) {
   const [url, setUrl] = useState<string | null>(null);
-  // Current object URL, revoked only when replaced or on unmount (never while
-  // it is still the <audio> src — that previously caused stray events).
   const urlRef = useRef<string | null>(null);
-  // True only once the *current* clip has actually started playing, so a stray
-  // `ended` fired while swapping src (navigating) can't trigger auto-advance.
   const readyRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const onPeakRef = useRef(onPeak);
+  useEffect(() => {
+    onPeakRef.current = onPeak;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +78,10 @@ export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
         if (urlRef.current) URL.revokeObjectURL(urlRef.current);
         urlRef.current = u;
         setUrl(u);
+        // Decode for waveform + peak (independent of playback).
+        const audioBuf = await getCtx().decodeAudioData(await file.arrayBuffer());
+        if (cancelled) return;
+        onPeakRef.current(drawWaveform(canvasRef.current, audioBuf));
       } catch {
         if (!cancelled) setUrl(null);
       }
@@ -42,7 +91,6 @@ export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
     };
   }, [item]);
 
-  // Revoke the last URL when the component unmounts.
   useEffect(
     () => () => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -51,26 +99,27 @@ export function AudioPlayer({ item, autoPlay, onEnded, audioRef }: Props) {
   );
 
   useEffect(() => {
-    if (url && autoPlay && audioRef.current) {
-      audioRef.current.play().catch(() => {});
-    }
+    if (url && autoPlay && audioRef.current) audioRef.current.play().catch(() => {});
   }, [url, autoPlay, audioRef]);
 
   return (
     <div className="player">
-      <div className="player-name">{item ? item.relPath : '—'}</div>
-      <audio
-        ref={audioRef}
-        src={url ?? undefined}
-        controls
-        onPlaying={() => {
-          readyRef.current = true;
-        }}
-        onEnded={() => {
-          // Only advance on a genuine end of the clip that was actually playing.
-          if (readyRef.current && audioRef.current?.ended) onEnded();
-        }}
-      />
+      <canvas className="waveform" width={600} height={48} ref={canvasRef} />
+      <div className="player-side">
+        <div className="player-name">{item ? item.relPath : '—'}</div>
+        <audio
+          ref={audioRef}
+          src={url ?? undefined}
+          controls
+          loop={loop}
+          onPlaying={() => {
+            readyRef.current = true;
+          }}
+          onEnded={() => {
+            if (readyRef.current && audioRef.current?.ended) onEnded();
+          }}
+        />
+      </div>
     </div>
   );
 }

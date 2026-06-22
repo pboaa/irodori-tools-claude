@@ -46,6 +46,10 @@ export function parseSidecar(text: string): SidecarMeta | null {
     truncationFactor: num(o.truncationFactor),
     createdAt: str(o.createdAt),
     command: str(o.command),
+    rating: ((): number => {
+      const r = num(o.rating);
+      return r !== null && r >= 0 && r <= 3 ? Math.round(r) : 0;
+    })(),
   };
 }
 

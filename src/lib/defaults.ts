@@ -62,6 +62,7 @@ export function defaultConfig(): GenConfig {
     emojiMaxHead: 5,
     emojiMaxTail: 8,
     emojiMaxRand: 3,
+    seedRepeat: 1,
     count: 5,
     outputDir: 'outputs/run',
     params: defaultParams(),

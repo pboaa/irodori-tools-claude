@@ -50,6 +50,22 @@ describe('output folders', () => {
     expect(s).toContain("'ねえ'");
     expect(s).toContain("'ねえ_2'");
   });
+  it('seedRepeat reuses one seed for N consecutive generations', () => {
+    const seedRange = (c: GenConfig) => {
+      c.params = c.params.map((p) => (p.flag === 'seed' ? { ...p, kind: 'range' as const } : p));
+      return c;
+    };
+    const py = buildPy(seedRange(cfg({ seedRepeat: 4 })));
+    expect(py).toContain('SEED_REPEAT = 4');
+    expect(py).toContain('if (index - 1) % SEED_REPEAT == 0: seed_hold = draw("seed")');
+    const ps = buildPs1(seedRange(cfg({ seedRepeat: 4 })));
+    expect(ps).toContain('(($Index - 1) % 4) -ne 0) { $Seed = $SeedHold }');
+    const bat = buildBat(seedRange(cfg({ seedRepeat: 4 })));
+    expect(bat).toContain('set /a SEEDMOD=(!INDEX!-1) %% 4');
+    // seedRepeat=1 => no reuse override
+    expect(buildPs1(seedRange(cfg({ seedRepeat: 1 })))).not.toContain('$SeedHold');
+  });
+
   it('does not leave empty folders on failure', () => {
     const py = buildPy(cfg());
     expect(py).toContain('except Exception as e:');

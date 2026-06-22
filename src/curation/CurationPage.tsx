@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AudioItem } from '../types';
+import type { AudioItem, Rating } from '../types';
 import { supportsFileSystemAccess, useDirectoryScan } from './useDirectoryScan';
 import { AudioPlayer } from './AudioPlayer';
-import { transferKept } from './fsActions';
+import { transferRated, writeRating } from './fsActions';
+import { AnalysisView } from './AnalysisView';
 
 const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '—' : String(n));
 
@@ -12,14 +13,21 @@ const dirOf = (relPath: string) =>
 
 const ROW_H = 30; // px per row, must match .grid td height for virtualization
 const OVERSCAN = 8;
+const RATE_LABEL: Record<number, string> = { 1: '✕', 2: '△', 3: '◎' };
+const RATE_NAME: Record<number, string> = { 1: '不可', 2: '普', 3: '良' };
 
 export function CurationPage() {
   const { root, items, scanning, loadingMeta, error, pick, setItems } = useDirectoryScan();
   const [selected, setSelected] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
   const [randomMode, setRandomMode] = useState(false);
+  const [loopUntilRated, setLoopUntilRated] = useState(false);
+  const [autoSkipQuiet, setAutoSkipQuiet] = useState(false);
+  const [quietThresh, setQuietThresh] = useState(0.02);
   const [filter, setFilter] = useState('');
   const [mode, setMode] = useState<'copy' | 'move'>('copy');
+  const [minRating, setMinRating] = useState(3);
+  const [view, setView] = useState<'list' | 'analysis'>('list');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [folderSel, setFolderSel] = useState<string | null>(null);
@@ -28,7 +36,6 @@ export function CurationPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  // Distinct folders (with counts) discovered under the opened root.
   const folders = useMemo(() => {
     const map = new Map<string, number>();
     for (const it of items) {
@@ -38,7 +45,6 @@ export function CurationPage() {
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [items]);
 
-  // A stale folder selection (e.g. after opening a new root) falls back to all.
   const effFolder = folderSel && folders.some(([d]) => d === folderSel) ? folderSel : null;
 
   const filtered = useMemo(() => {
@@ -46,10 +52,7 @@ export function CurationPage() {
     return items.filter((it) => {
       if (effFolder && dirOf(it.relPath) !== effFolder) return false;
       if (!q) return true;
-      return (
-        it.relPath.toLowerCase().includes(q) ||
-        (it.meta?.text ?? '').toLowerCase().includes(q)
-      );
+      return it.relPath.toLowerCase().includes(q) || (it.meta?.text ?? '').toLowerCase().includes(q);
     });
   }, [items, filter, effFolder]);
 
@@ -58,36 +61,31 @@ export function CurationPage() {
     [filtered.length],
   );
 
-  // Keep the highlighted row in range as the visible set changes.
   const selIndex = Math.min(selected, Math.max(0, filtered.length - 1));
   const current: AudioItem | null = filtered[selIndex] ?? null;
-  const keptCount = items.filter((it) => it.status === 'keep').length;
+  const transferCount = items.filter((it) => it.rating >= minRating && it.rating > 0).length;
 
-  // ---- Virtualized window: only render rows near the viewport. ----
+  // ---- Virtualized window. ----
   const maxScroll = Math.max(0, filtered.length * ROW_H - viewH);
-  const st = Math.min(scrollTop, maxScroll); // clamp so a stale scrollTop can't blank the list
-  const vStart = Math.max(0, Math.floor(st / ROW_H) - OVERSCAN);
-  const vEnd = Math.min(filtered.length, Math.ceil((st + viewH) / ROW_H) + OVERSCAN);
+  const stp = Math.min(scrollTop, maxScroll);
+  const vStart = Math.max(0, Math.floor(stp / ROW_H) - OVERSCAN);
+  const vEnd = Math.min(filtered.length, Math.ceil((stp + viewH) / ROW_H) + OVERSCAN);
   const visible = filtered.slice(vStart, vEnd);
   const topPad = vStart * ROW_H;
   const bottomPad = Math.max(0, (filtered.length - vEnd) * ROW_H);
 
-  // Track the scroll container height (ResizeObserver fires once on observe).
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => setViewH(el.clientHeight));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [view]);
 
-  // Reset scroll to top when the visible set changes (the scroll event then
-  // updates scrollTop state — no setState needed here).
   useEffect(() => {
     if (wrapRef.current) wrapRef.current.scrollTop = 0;
   }, [filter, effFolder]);
 
-  // Keep the selected row visible when navigating by keyboard/auto-advance.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -97,16 +95,16 @@ export function CurationPage() {
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
   }, [selIndex]);
 
-  const setStatus = useCallback(
-    (item: AudioItem | null, status: AudioItem['status']) => {
+  // Set a rating (no auto-advance) and persist it to the sidecar JSON.
+  const setRating = useCallback(
+    (item: AudioItem | null, r: Rating) => {
       if (!item) return;
-      setItems((arr) => arr.map((it) => (it.id === item.id ? { ...it, status } : it)));
+      setItems((arr) => arr.map((it) => (it.id === item.id ? { ...it, rating: r } : it)));
+      void writeRating(item, r);
     },
     [setItems],
   );
 
-  // Advance: random mode picks a different item (never the same one twice in a
-  // row); otherwise step to the next.
   const goNext = useCallback(() => {
     setSelected((s) => {
       const n = filtered.length;
@@ -126,20 +124,37 @@ export function CurationPage() {
     setSelected(0);
   };
 
-  // Open a folder and start from its first file.
   const openFolder = async () => {
     setFolderSel(null);
     await pick();
     setSelected(0);
   };
 
-  // Auto-advance only when auto-play is on (a finished clip shouldn't move the
-  // selection while the user is browsing with auto-play off).
   const handleEnded = useCallback(() => {
     if (autoPlay) goNext();
   }, [autoPlay, goNext]);
 
-  // Keyboard shortcuts.
+  // Skip clips quieter than the threshold (failed/silent generations).
+  const handlePeak = useCallback(
+    (peak: number) => {
+      if (autoSkipQuiet && peak < quietThresh) goNext();
+    },
+    [autoSkipQuiet, quietThresh, goNext],
+  );
+
+  // Jump to an item by id (from the analysis view) and show it in the list.
+  const playById = useCallback(
+    (id: string) => {
+      setView('list');
+      setFilter('');
+      setFolderSel(null);
+      const idx = items.findIndex((it) => it.id === id);
+      if (idx >= 0) setSelected(idx);
+    },
+    [items],
+  );
+
+  // Keyboard shortcuts (1/2/3 rate, 0 clears; rating never auto-advances).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -160,15 +175,18 @@ export function CurationPage() {
           e.preventDefault();
           setSelected((s) => clampSel(s - 1));
           break;
-        case 'k':
-        case 'K':
-          setStatus(current, 'keep');
-          goNext();
+        case '1':
+          setRating(current, 1);
           break;
-        case 'x':
-        case 'X':
-          setStatus(current, 'reject');
-          goNext();
+        case '2':
+          setRating(current, 2);
+          break;
+        case '3':
+          setRating(current, 3);
+          break;
+        case '0':
+        case 'Backspace':
+          setRating(current, 0);
           break;
         case 'Enter':
           goNext();
@@ -177,11 +195,9 @@ export function CurationPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [current, clampSel, setStatus, goNext]);
+  }, [current, clampSel, setRating, goNext]);
 
-  // MediaSession: lets OS media keys / Bluetooth buttons / the media overlay
-  // control playback even while the tab is in the background (audio must be
-  // playing). prev/next = navigate, play/pause = toggle, seek± = keep/reject.
+  // MediaSession: background control via media keys (audio must be playing).
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
@@ -189,29 +205,22 @@ export function CurationPage() {
       try {
         ms.setActionHandler(action, fn);
       } catch {
-        /* unsupported action */
+        /* unsupported */
       }
     };
     set('play', () => audioRef.current?.play().catch(() => {}));
     set('pause', () => audioRef.current?.pause());
     set('previoustrack', () => setSelected((s) => clampSel(s - 1)));
     set('nexttrack', () => setSelected((s) => clampSel(s + 1)));
-    set('seekforward', () => {
-      setStatus(current, 'keep');
-      goNext();
-    });
-    set('seekbackward', () => {
-      setStatus(current, 'reject');
-      goNext();
-    });
+    set('seekforward', () => setRating(current, 3)); // 良
+    set('seekbackward', () => setRating(current, 1)); // 不可
     return () => {
       (['play', 'pause', 'previoustrack', 'nexttrack', 'seekforward', 'seekbackward'] as const).forEach(
         (a) => set(a, null),
       );
     };
-  }, [current, clampSel, setStatus, goNext]);
+  }, [current, clampSel, setRating]);
 
-  // Show what's playing in the OS media overlay.
   useEffect(() => {
     if (!('mediaSession' in navigator) || !current) return;
     try {
@@ -221,7 +230,7 @@ export function CurationPage() {
         album: 'Irodori-TTS 厳選',
       });
     } catch {
-      /* MediaMetadata unsupported */
+      /* unsupported */
     }
   }, [current]);
 
@@ -230,14 +239,13 @@ export function CurationPage() {
     setBusy(true);
     setResult(null);
     try {
-      const r = await transferKept(root, items, mode);
+      const r = await transferRated(root, items, minRating, mode);
       setResult(
         `${mode === 'move' ? '移動' : 'コピー'} ${r.moved} 件完了` +
           (r.errors.length ? ` / エラー ${r.errors.length} 件` : ''),
       );
       if (mode === 'move' && r.moved > 0) {
-        // Drop moved items from the list.
-        setItems((arr) => arr.filter((it) => it.status !== 'keep'));
+        setItems((arr) => arr.filter((it) => !(it.rating >= minRating && it.rating > 0)));
         setSelected((s) => clampSel(s));
       }
     } catch (e) {
@@ -263,6 +271,14 @@ export function CurationPage() {
         <button className="primary" onClick={openFolder}>
           フォルダを開く
         </button>
+        <div className="tabs small">
+          <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>
+            リスト
+          </button>
+          <button className={view === 'analysis' ? 'active' : ''} onClick={() => setView('analysis')}>
+            分析
+          </button>
+        </div>
         <input
           className="filter"
           placeholder="テキスト/パスで絞り込み"
@@ -280,13 +296,38 @@ export function CurationPage() {
           <input type="checkbox" checked={randomMode} onChange={(e) => setRandomMode(e.target.checked)} />
           ランダム
         </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={loopUntilRated} onChange={(e) => setLoopUntilRated(e.target.checked)} />
+          評価までループ
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={autoSkipQuiet} onChange={(e) => setAutoSkipQuiet(e.target.checked)} />
+          無音スキップ
+        </label>
+        {autoSkipQuiet && (
+          <input
+            type="number"
+            className="thresh"
+            min={0}
+            max={0.5}
+            step={0.005}
+            value={quietThresh}
+            title="この振幅未満を無音として次へ"
+            onChange={(e) => setQuietThresh(Number(e.target.value))}
+          />
+        )}
         <span className="grow" />
+        <select value={minRating} onChange={(e) => setMinRating(Number(e.target.value))}>
+          <option value={3}>良のみ</option>
+          <option value={2}>普以上</option>
+          <option value={1}>評価済すべて</option>
+        </select>
         <select value={mode} onChange={(e) => setMode(e.target.value as 'copy' | 'move')}>
           <option value="copy">selected/ へコピー</option>
           <option value="move">selected/ へ移動</option>
         </select>
-        <button disabled={!root || keptCount === 0 || busy} onClick={doTransfer}>
-          キープ {keptCount} 件を実行
+        <button disabled={!root || transferCount === 0 || busy} onClick={doTransfer}>
+          {transferCount} 件を実行
         </button>
       </div>
 
@@ -300,111 +341,117 @@ export function CurationPage() {
         </p>
       )}
 
-      <AudioPlayer item={current} autoPlay={autoPlay} onEnded={handleEnded} audioRef={audioRef} />
+      <AudioPlayer
+        item={current}
+        autoPlay={autoPlay}
+        loop={loopUntilRated && !!current && current.rating === 0}
+        onEnded={handleEnded}
+        onPeak={handlePeak}
+        audioRef={audioRef}
+      />
 
-      <div className="curation-body">
-        {folders.length > 0 && (
-          <aside className="folder-panel">
-            <button
-              className={`folder-item ${effFolder === null ? 'on' : ''}`}
-              onClick={() => pickFolder(null)}
-            >
-              <span className="folder-name">すべて</span>
-              <span className="folder-count">{items.length}</span>
-            </button>
-            {folders.map(([dir, count]) => (
+      {view === 'analysis' ? (
+        <AnalysisView items={items} onPlay={playById} />
+      ) : (
+        <div className="curation-body">
+          {folders.length > 0 && (
+            <aside className="folder-panel">
               <button
-                key={dir}
-                className={`folder-item ${effFolder === dir ? 'on' : ''}`}
-                title={dir}
-                onClick={() => pickFolder(dir)}
+                className={`folder-item ${effFolder === null ? 'on' : ''}`}
+                onClick={() => pickFolder(null)}
               >
-                <span className="folder-name">📁 {dir.split('/').pop()}</span>
-                <span className="folder-count">{count}</span>
+                <span className="folder-name">すべて</span>
+                <span className="folder-count">{items.length}</span>
               </button>
-            ))}
-          </aside>
-        )}
-
-        <div className="table-wrap" ref={wrapRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
-        <table className="grid">
-          <thead>
-            <tr>
-              <th>状態</th>
-              <th>#</th>
-              <th>テキスト</th>
-              <th>絵文字</th>
-              <th>seed</th>
-              <th>steps</th>
-              <th>cfg-T</th>
-              <th>cfg-C</th>
-              <th>cfg-S</th>
-              <th>dur</th>
-              <th>sway</th>
-              <th>trunc</th>
-              <th>ref</th>
-            </tr>
-          </thead>
-          <tbody>
-            {topPad > 0 && <tr style={{ height: topPad }} aria-hidden />}
-            {visible.map((it, vi) => {
-              const i = vStart + vi;
-              return (
-                <tr
-                  key={it.id}
-                  className={`${i === selIndex ? 'sel' : ''} ${it.status}`}
-                  onClick={() => setSelected(i)}
+              {folders.map(([dir, count]) => (
+                <button
+                  key={dir}
+                  className={`folder-item ${effFolder === dir ? 'on' : ''}`}
+                  title={dir}
+                  onClick={() => pickFolder(dir)}
                 >
-                  <td>
-                    <button
-                      className="mini keep"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setStatus(it, it.status === 'keep' ? 'none' : 'keep');
-                      }}
-                    >
-                      {it.status === 'keep' ? '★' : '☆'}
-                    </button>
-                    <button
-                      className="mini reject"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setStatus(it, it.status === 'reject' ? 'none' : 'reject');
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                  <td className="num">{fmt(it.meta?.index)}</td>
-                  <td className="text" title={it.meta?.text ?? ''}>{it.meta?.text ?? '—'}</td>
-                  <td>{it.meta?.emoji ?? '—'}</td>
-                  <td className="num">{fmt(it.meta?.seed)}</td>
-                  <td className="num">{fmt(it.meta?.numSteps)}</td>
-                  <td className="num">{fmt(it.meta?.cfgScaleText)}</td>
-                  <td className="num">{fmt(it.meta?.cfgScaleCaption)}</td>
-                  <td className="num">{fmt(it.meta?.cfgScaleSpeaker)}</td>
-                  <td className="num">{fmt(it.meta?.durationScale)}</td>
-                  <td className="num">{fmt(it.meta?.swayCoeff)}</td>
-                  <td className="num">{fmt(it.meta?.truncationFactor)}</td>
-                  <td className="ref" title={it.meta?.refWav ?? ''}>
-                    {it.meta?.refWav ? it.meta.refWav.split(/[/\\]/).pop() : it.meta?.refMode === 'no-ref' ? 'no-ref' : '—'}
-                  </td>
+                  <span className="folder-name">📁 {dir.split('/').pop()}</span>
+                  <span className="folder-count">{count}</span>
+                </button>
+              ))}
+            </aside>
+          )}
+
+          <div className="table-wrap" ref={wrapRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th>評価</th>
+                  <th>#</th>
+                  <th>テキスト</th>
+                  <th>絵文字</th>
+                  <th>seed</th>
+                  <th>steps</th>
+                  <th>cfg-T</th>
+                  <th>cfg-C</th>
+                  <th>cfg-S</th>
+                  <th>dur</th>
+                  <th>sway</th>
+                  <th>trunc</th>
+                  <th>ref</th>
                 </tr>
-              );
-            })}
-            {bottomPad > 0 && <tr style={{ height: bottomPad }} aria-hidden />}
-          </tbody>
-        </table>
-        {root && !scanning && filtered.length === 0 && (
-          <p className="info">wav が見つかりませんでした。</p>
-        )}
+              </thead>
+              <tbody>
+                {topPad > 0 && <tr style={{ height: topPad }} aria-hidden />}
+                {visible.map((it, vi) => {
+                  const i = vStart + vi;
+                  return (
+                    <tr
+                      key={it.id}
+                      className={`${i === selIndex ? 'sel' : ''} r${it.rating}`}
+                      onClick={() => setSelected(i)}
+                    >
+                      <td className="rate">
+                        {[1, 2, 3].map((v) => (
+                          <button
+                            key={v}
+                            className={`mini rate${v} ${it.rating === v ? 'on' : ''}`}
+                            title={RATE_NAME[v]}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRating(it, (it.rating === v ? 0 : v) as Rating);
+                            }}
+                          >
+                            {RATE_LABEL[v]}
+                          </button>
+                        ))}
+                      </td>
+                      <td className="num">{fmt(it.meta?.index)}</td>
+                      <td className="text" title={it.meta?.text ?? ''}>{it.meta?.text ?? '—'}</td>
+                      <td>{it.meta?.emoji ?? '—'}</td>
+                      <td className="num">{fmt(it.meta?.seed)}</td>
+                      <td className="num">{fmt(it.meta?.numSteps)}</td>
+                      <td className="num">{fmt(it.meta?.cfgScaleText)}</td>
+                      <td className="num">{fmt(it.meta?.cfgScaleCaption)}</td>
+                      <td className="num">{fmt(it.meta?.cfgScaleSpeaker)}</td>
+                      <td className="num">{fmt(it.meta?.durationScale)}</td>
+                      <td className="num">{fmt(it.meta?.swayCoeff)}</td>
+                      <td className="num">{fmt(it.meta?.truncationFactor)}</td>
+                      <td className="ref" title={it.meta?.refWav ?? ''}>
+                        {it.meta?.refWav ? it.meta.refWav.split(/[/\\]/).pop() : it.meta?.refMode === 'no-ref' ? 'no-ref' : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {bottomPad > 0 && <tr style={{ height: bottomPad }} aria-hidden />}
+              </tbody>
+            </table>
+            {root && !scanning && filtered.length === 0 && (
+              <p className="info">wav が見つかりませんでした。</p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <p className="hint">
-        ショートカット: Space=再生/停止 · ↑↓=移動 · K=キープ · X=リジェクト · Enter=次
+        ショートカット: Space=再生/停止 · ↑↓=移動 · 1=不可 / 2=普 / 3=良 · 0=クリア · Enter=次
         <br />
-        バックグラウンド操作（メディアキー/イヤホン）: ⏯=再生停止 · ⏮⏭=前/次 · 早送り=キープ・巻戻し=リジェクト
+        バックグラウンド（メディアキー/イヤホン）: ⏯=再生停止 · ⏮⏭=前/次 · 早送り=良・巻戻し=不可
       </p>
     </div>
   );

@@ -277,6 +277,16 @@ export function GeneratorPage() {
         <p className="param-hint">
           各パラメータは「既定（infer.py 任せ）/ 固定 / 範囲（生成ごとにランダム）」を選べます。
         </p>
+        <label className="field">
+          同一シード連続数 N（seed を range にした時、同じ seed で N 件続けて生成し他パラメータを振る）
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={config.seedRepeat}
+            onChange={(e) => set({ seedRepeat: Math.max(1, Number(e.target.value)) })}
+          />
+        </label>
         <div className="params-grid">
           {config.params.map((p, i) => (
             <ParamRangeInput

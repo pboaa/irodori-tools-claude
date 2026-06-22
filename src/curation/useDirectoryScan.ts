@@ -43,7 +43,7 @@ async function walk(
       dirHandle: dir,
       jsonHandle,
       meta: null,
-      status: 'none',
+      rating: 0,
     });
   }
 
@@ -94,7 +94,13 @@ export function useDirectoryScan() {
       setState((s) => ({
         ...s,
         loadingMeta: remaining,
-        items: s.items.map((it) => (map.has(it.id) ? { ...it, meta: map.get(it.id)! } : it)),
+        items: s.items.map((it) => {
+          if (!map.has(it.id)) return it;
+          const meta = map.get(it.id)!;
+          // Keep an already-set (user) rating; otherwise hydrate from the JSON.
+          const rating = (it.rating || (meta?.rating ?? 0)) as AudioItem['rating'];
+          return { ...it, meta, rating };
+        }),
       }));
     }
   }, []);

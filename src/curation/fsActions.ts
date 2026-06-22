@@ -37,15 +37,32 @@ export interface TransferResult {
 }
 
 /**
- * Copy or move all kept items into a `selected/` subfolder of root.
- * The matching sidecar .json is transferred alongside each wav.
+ * Persist a rating into the item's sidecar JSON (read → patch → write back).
+ * No-op when the wav has no sidecar (rating then lives in memory only).
  */
-export async function transferKept(
+export async function writeRating(item: AudioItem, rating: number): Promise<void> {
+  if (!item.jsonHandle) return;
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(await (await item.jsonHandle.getFile()).text());
+  } catch {
+    obj = {};
+  }
+  obj.rating = rating;
+  await writeFile(item.dirHandle, item.jsonHandle.name, JSON.stringify(obj, null, 2));
+}
+
+/**
+ * Copy or move items whose rating meets `minRating` into a `selected/`
+ * subfolder of root. The matching sidecar .json is transferred alongside.
+ */
+export async function transferRated(
   root: FileSystemDirectoryHandle,
   items: AudioItem[],
+  minRating: number,
   mode: 'copy' | 'move',
 ): Promise<TransferResult> {
-  const kept = items.filter((it) => it.status === 'keep');
+  const kept = items.filter((it) => it.rating >= minRating && it.rating > 0);
   const selected = await root.getDirectoryHandle('selected', { create: true });
   const errors: string[] = [];
   let moved = 0;

@@ -80,6 +80,8 @@ export interface GenConfig {
   emojiMaxHead: number;
   emojiMaxTail: number;
   emojiMaxRand: number;
+  /** Reuse the same seed for N consecutive generations (1 = new seed each time). */
+  seedRepeat: number;
   /** Generations per text line. */
   count: number;
   /** Output directory the scripts create and write into. */
@@ -114,7 +116,12 @@ export interface SidecarMeta {
   truncationFactor: number | null;
   createdAt: string;
   command: string;
+  /** Curation rating: 0=unrated, 1=不可, 2=普, 3=良. */
+  rating: number;
 }
+
+/** Rating value: 0 unrated, 1 bad, 2 ok, 3 good. */
+export type Rating = 0 | 1 | 2 | 3;
 
 /** A wav discovered during curation, with optional parsed sidecar metadata. */
 export interface AudioItem {
@@ -128,5 +135,6 @@ export interface AudioItem {
   /** Sidecar file handle if a matching .json was found. */
   jsonHandle: FileSystemFileHandle | null;
   meta: SidecarMeta | null;
-  status: 'none' | 'keep' | 'reject';
+  /** 0=unrated, 1=不可, 2=普, 3=良. */
+  rating: Rating;
 }
