@@ -54,10 +54,9 @@ export function defaultConfig(): GenConfig {
     refMode: 'no-ref',
     refWav: '',
     emojiEntries: [
-      // Symbols on by default: occasionally add one ♡ / ！ / ？ at the end.
-      makeEntry('♡', { mode: 'range', tailMin: 0, tailMax: 1 }),
-      makeEntry('！', { mode: 'range', tailMin: 0, tailMax: 1 }),
-      makeEntry('？', { mode: 'range', tailMin: 0, tailMax: 1 }),
+      // Defaults: 👂 (whisper) once at the tail, plus an occasional 🫶 (gentle).
+      makeEntry('👂', { mode: 'fixed', tailMin: 1, tailMax: 1 }),
+      makeEntry('🫶', { mode: 'range', tailMin: 0, tailMax: 1 }),
     ],
     emojiMaxHead: 5,
     emojiMaxTail: 8,

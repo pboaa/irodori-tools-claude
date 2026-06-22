@@ -20,6 +20,7 @@ export function CurationPage() {
   const { root, items, scanning, loadingMeta, error, pick, setItems } = useDirectoryScan();
   const [selected, setSelected] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
+  const [advanceDelay, setAdvanceDelay] = useState(1.5);
   const [randomMode, setRandomMode] = useState(false);
   const [loopUntilRated, setLoopUntilRated] = useState(false);
   const [autoSkipQuiet, setAutoSkipQuiet] = useState(false);
@@ -35,6 +36,8 @@ export function CurationPage() {
   const [viewH, setViewH] = useState(600);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const advanceTimer = useRef<number | null>(null);
+  const currentIdRef = useRef<string | null>(null);
 
   const folders = useMemo(() => {
     const map = new Map<string, number>();
@@ -130,9 +133,30 @@ export function CurationPage() {
     setSelected(0);
   };
 
+  // Auto-advance after a grace delay so you can rate / go back before it moves.
   const handleEnded = useCallback(() => {
-    if (autoPlay) goNext();
-  }, [autoPlay, goNext]);
+    if (!autoPlay) return;
+    const id = current?.id ?? null;
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current = window.setTimeout(
+      () => {
+        // Skip if the user navigated away during the grace window.
+        if (currentIdRef.current === id) goNext();
+      },
+      Math.max(0, advanceDelay) * 1000,
+    );
+  }, [autoPlay, advanceDelay, current, goNext]);
+
+  // Track current id for the grace-window guard; clear any pending timer on unmount.
+  useEffect(() => {
+    currentIdRef.current = current?.id ?? null;
+  }, [current]);
+  useEffect(
+    () => () => {
+      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    },
+    [],
+  );
 
   // Skip clips quieter than the threshold (failed/silent generations).
   const handlePeak = useCallback(
@@ -290,8 +314,23 @@ export function CurationPage() {
         />
         <label className="checkbox">
           <input type="checkbox" checked={autoPlay} onChange={(e) => setAutoPlay(e.target.checked)} />
-          自動再生
+          自動送り
         </label>
+        {autoPlay && (
+          <label className="checkbox" title="再生終了から次へ進むまでの猶予">
+            猶予
+            <input
+              type="number"
+              className="thresh"
+              min={0}
+              max={10}
+              step={0.5}
+              value={advanceDelay}
+              onChange={(e) => setAdvanceDelay(Math.max(0, Number(e.target.value)))}
+            />
+            秒
+          </label>
+        )}
         <label className="checkbox">
           <input type="checkbox" checked={randomMode} onChange={(e) => setRandomMode(e.target.checked)} />
           ランダム
