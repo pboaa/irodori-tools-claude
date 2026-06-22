@@ -14,6 +14,7 @@ export function CurationPage() {
   const { root, items, scanning, error, pick, setItems } = useDirectoryScan();
   const [selected, setSelected] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
+  const [randomMode, setRandomMode] = useState(false);
   const [filter, setFilter] = useState('');
   const [mode, setMode] = useState<'copy' | 'move'>('copy');
   const [busy, setBusy] = useState(false);
@@ -64,7 +65,21 @@ export function CurationPage() {
     [setItems],
   );
 
-  const goNext = useCallback(() => setSelected((s) => clampSel(s + 1)), [clampSel]);
+  // Advance: random mode picks a different item (never the same one twice in a
+  // row); otherwise step to the next.
+  const goNext = useCallback(() => {
+    setSelected((s) => {
+      const n = filtered.length;
+      if (n <= 1) return Math.min(s, Math.max(0, n - 1));
+      if (randomMode) {
+        const cur = Math.min(s, n - 1);
+        let r = cur;
+        while (r === cur) r = Math.floor(Math.random() * n);
+        return r;
+      }
+      return Math.min(s + 1, n - 1);
+    });
+  }, [filtered.length, randomMode]);
 
   const pickFolder = (dir: string | null) => {
     setFolderSel(dir);
@@ -220,6 +235,10 @@ export function CurationPage() {
         <label className="checkbox">
           <input type="checkbox" checked={autoPlay} onChange={(e) => setAutoPlay(e.target.checked)} />
           自動再生
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={randomMode} onChange={(e) => setRandomMode(e.target.checked)} />
+          ランダム
         </label>
         <span className="grow" />
         <select value={mode} onChange={(e) => setMode(e.target.value as 'copy' | 'move')}>

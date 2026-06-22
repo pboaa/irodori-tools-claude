@@ -293,6 +293,7 @@ export function buildPs1(config: GenConfig): string {
   L.push('');
   L.push('    Write-Host "[$Index] $Text"');
   L.push(`    ${config.runPrefix} @cmdArgs`);
+  L.push('    if (-not (Test-Path $Wav)) { Write-Warning "[$Index] no output, skipped"; continue }');
   L.push('');
 
   // Sidecar JSON.
@@ -320,6 +321,12 @@ export function buildPs1(config: GenConfig): string {
   L.push('    $Meta | ConvertTo-Json -Depth 5 | Set-Content -Path $Json -Encoding UTF8');
   L.push('  }');
   L.push('}');
+  L.push('# Remove any empty folders left by failed generations.');
+  L.push('Get-ChildItem -Path $RunDir -Directory -Recurse -ErrorAction SilentlyContinue |');
+  L.push('  Sort-Object { $_.FullName.Length } -Descending |');
+  L.push('  Where-Object { @(Get-ChildItem $_.FullName -Force).Count -eq 0 } |');
+  L.push('  Remove-Item -Force -ErrorAction SilentlyContinue');
+  L.push('if ((Test-Path $RunDir) -and @(Get-ChildItem $RunDir -Force).Count -eq 0) { Remove-Item $RunDir -Force }');
   L.push('Write-Host "Done. $Index file(s) written to $RunDir"');
   L.push('');
   return L.join('\n');
@@ -488,10 +495,18 @@ export function buildBat(config: GenConfig): string {
   for (const p of active) {
     L.push(`      set "${FLAG_INFO[p.flag].env}=!${FLAG_INFO[p.flag].psVar}!"`);
   }
-  L.push('      powershell -NoProfile -Command ' + batJsonPsCommand(config, active));
+  // Only write the sidecar when a wav was actually produced.
+  L.push(
+    '      if exist "!WAV!" (powershell -NoProfile -Command ' +
+      batJsonPsCommand(config, active) +
+      ') else (echo [!INDEX!] no output, skipped)',
+  );
   L.push('    )');
   L.push('  )');
   L.push(')');
+  L.push('REM Remove empty folders left by failed generations.');
+  L.push('for /f "delims=" %%d in (\'dir /ad /b /s "%RUNDIR%" 2^>nul ^| sort /r\') do rd "%%d" 2>nul');
+  L.push('rd "%RUNDIR%" 2>nul');
   L.push('echo Done. !INDEX! file(s) written to %RUNDIR%');
   L.push('endlocal');
   L.push('');
@@ -646,7 +661,6 @@ export function buildPy(config: GenConfig): string {
   L.push('index = 0');
   L.push('for ti, base in enumerate(TEXTS):');
   L.push('    text_dir = run_dir / TEXT_FOLDERS[ti]');
-  L.push('    text_dir.mkdir(parents=True, exist_ok=True)');
   L.push('    for _ in range(COUNT):');
   L.push('        index += 1');
   L.push('        r_seed = draw("seed")');
@@ -659,26 +673,31 @@ export function buildPy(config: GenConfig): string {
   L.push('        r_tr = draw("truncation-factor")');
   L.push('        text, applied = compose(base)');
   L.push('        name = f"{index:04d}" + (f"_{r_seed}" if r_seed is not None else "")');
-  L.push('        result = runtime.synthesize(SamplingRequest(');
-  L.push('            text=text, caption=CAPTION, ref_wav=REF_WAV, ref_latent=None, ref_embed=None,');
-  L.push('            no_ref=(REF_MODE == "no-ref"), ref_normalize_db=-16.0, ref_ensure_max=True,');
-  L.push('            num_candidates=1, decode_mode="sequential", seconds=None,');
-  L.push('            duration_scale=float(use("duration-scale", r_dur)), max_ref_seconds=30.0,');
-  L.push('            max_text_len=None, max_caption_len=None,');
-  L.push('            num_steps=int(use("num-steps", r_steps)),');
-  L.push('            cfg_scale_text=float(use("cfg-scale-text", r_ct)),');
-  L.push('            cfg_scale_caption=float(use("cfg-scale-caption", r_cc)),');
-  L.push('            cfg_scale_speaker=float(use("cfg-scale-speaker", r_cs)),');
-  L.push('            cfg_guidance_mode="independent", cfg_scale=None, cfg_min_t=0.5, cfg_max_t=1.0,');
-  L.push('            truncation_factor=(None if r_tr is None else float(r_tr)),');
-  L.push('            rescale_k=None, rescale_sigma=None, context_kv_cache=True,');
-  L.push('            speaker_kv_scale=None, speaker_kv_min_t=None, speaker_kv_max_layers=None,');
-  L.push('            speaker_uncond_mode="mask",');
-  L.push('            seed=(None if r_seed is None else int(r_seed)),');
-  L.push('            t_schedule_mode="linear", sway_coeff=float(use("sway-coeff", r_sway)),');
-  L.push('            trim_tail=True, tail_window_size=20, tail_std_threshold=0.05,');
-  L.push('            tail_mean_threshold=0.1, lora_adapter=None,');
-  L.push('        ), log_fn=None)');
+  L.push('        try:');
+  L.push('            result = runtime.synthesize(SamplingRequest(');
+  L.push('                text=text, caption=CAPTION, ref_wav=REF_WAV, ref_latent=None, ref_embed=None,');
+  L.push('                no_ref=(REF_MODE == "no-ref"), ref_normalize_db=-16.0, ref_ensure_max=True,');
+  L.push('                num_candidates=1, decode_mode="sequential", seconds=None,');
+  L.push('                duration_scale=float(use("duration-scale", r_dur)), max_ref_seconds=30.0,');
+  L.push('                max_text_len=None, max_caption_len=None,');
+  L.push('                num_steps=int(use("num-steps", r_steps)),');
+  L.push('                cfg_scale_text=float(use("cfg-scale-text", r_ct)),');
+  L.push('                cfg_scale_caption=float(use("cfg-scale-caption", r_cc)),');
+  L.push('                cfg_scale_speaker=float(use("cfg-scale-speaker", r_cs)),');
+  L.push('                cfg_guidance_mode="independent", cfg_scale=None, cfg_min_t=0.5, cfg_max_t=1.0,');
+  L.push('                truncation_factor=(None if r_tr is None else float(r_tr)),');
+  L.push('                rescale_k=None, rescale_sigma=None, context_kv_cache=True,');
+  L.push('                speaker_kv_scale=None, speaker_kv_min_t=None, speaker_kv_max_layers=None,');
+  L.push('                speaker_uncond_mode="mask",');
+  L.push('                seed=(None if r_seed is None else int(r_seed)),');
+  L.push('                t_schedule_mode="linear", sway_coeff=float(use("sway-coeff", r_sway)),');
+  L.push('                trim_tail=True, tail_window_size=20, tail_std_threshold=0.05,');
+  L.push('                tail_mean_threshold=0.1, lora_adapter=None,');
+  L.push('            ), log_fn=None)');
+  L.push('        except Exception as e:  # one failure must not abort the batch');
+  L.push('            print(f"[{index}] FAILED: {e}")');
+  L.push('            continue');
+  L.push('        text_dir.mkdir(parents=True, exist_ok=True)  # only create on success');
   L.push('        save_wav(str(text_dir / f"{name}.wav"), result.audio, result.sample_rate)');
   L.push('        meta = {');
   L.push('            "schema": "irodori-tts-sidecar/v1", "wav": f"{name}.wav",');

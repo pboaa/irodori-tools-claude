@@ -50,6 +50,20 @@ describe('output folders', () => {
     expect(s).toContain("'ねえ'");
     expect(s).toContain("'ねえ_2'");
   });
+  it('does not leave empty folders on failure', () => {
+    const py = buildPy(cfg());
+    expect(py).toContain('except Exception as e:');
+    expect(py).toContain('text_dir.mkdir(parents=True, exist_ok=True)  # only create on success');
+
+    const ps = buildPs1(cfg());
+    expect(ps).toContain('if (-not (Test-Path $Wav)) { Write-Warning');
+    expect(ps).toContain('Remove-Item -Force -ErrorAction SilentlyContinue');
+
+    const bat = buildBat(cfg());
+    expect(bat).toContain('if exist "!WAV!" (powershell');
+    expect(bat).toContain('rd "%RUNDIR%" 2>nul');
+  });
+
   it('bat builds run/text dirs', () => {
     const s = buildBat(cfg({ texts: 'やあ' }));
     expect(s).toContain('set "RUNDIR=%OUTDIR%\\%RUNID%"');
