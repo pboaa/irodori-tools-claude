@@ -607,6 +607,27 @@ button.reset:hover {
 .cura-settings-body .checkbox {
   margin-bottom: 0;
 }
+.rate-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chip-toggle {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.chip-toggle.on {
+  background: #2b3450;
+  border-color: var(--accent);
+  color: var(--text);
+}
 .grow {
   flex: 1;
 }

@@ -26,7 +26,9 @@ interface Prefs {
   quietThresh: number;
   wheelRate: boolean;
   defaultOkOnPass: boolean;
-  skipRated: boolean;
+  ratingAdvances: boolean;
+  /** Which ratings are shown/cycled through (0=未,1=不可,2=普,3=良). */
+  ratingFilter: number[];
   mode: 'copy' | 'move';
   minRating: number;
 }
@@ -39,7 +41,8 @@ const DEFAULT_PREFS: Prefs = {
   quietThresh: 0.02,
   wheelRate: true,
   defaultOkOnPass: true,
-  skipRated: false,
+  ratingAdvances: true,
+  ratingFilter: [0, 1, 2, 3],
   mode: 'copy',
   minRating: 3,
 };
@@ -58,6 +61,13 @@ export function CurationPage() {
   const { root, items, scanning, loadingMeta, error, pick, setItems } = useDirectoryScan();
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const p = (patch: Partial<Prefs>) => setPrefs((s) => ({ ...s, ...patch }));
+  const toggleRatingFilter = (v: number) =>
+    setPrefs((s) => ({
+      ...s,
+      ratingFilter: s.ratingFilter.includes(v)
+        ? s.ratingFilter.filter((x) => x !== v)
+        : [...s.ratingFilter, v].sort(),
+    }));
 
   const [selected, setSelected] = useState(0);
   const [filter, setFilter] = useState('');
@@ -76,6 +86,7 @@ export function CurationPage() {
   const currentRef = useRef<AudioItem | null>(null);
   const itemsRef = useRef<AudioItem[]>(items);
   const lastWheel = useRef<{ id: string | null; r: Rating }>({ id: null, r: 0 });
+  const wheelCooldown = useRef(0);
 
   useEffect(() => {
     try {
@@ -98,12 +109,14 @@ export function CurationPage() {
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
+    const rf = new Set(prefs.ratingFilter);
     return items.filter((it) => {
       if (effFolder && dirOf(it.relPath) !== effFolder) return false;
+      if (!rf.has(it.rating)) return false;
       if (!q) return true;
       return it.relPath.toLowerCase().includes(q) || (it.meta?.text ?? '').toLowerCase().includes(q);
     });
-  }, [items, filter, effFolder]);
+  }, [items, filter, effFolder, prefs.ratingFilter]);
 
   const clampSel = useCallback(
     (i: number) => Math.max(0, Math.min(i, filtered.length - 1)),
@@ -151,21 +164,12 @@ export function CurationPage() {
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
   }, [selIndex]);
 
-  // Advance, optionally skipping already-rated items.
+  // Advance within the (rating-)filtered set.
   const goNext = useCallback(() => {
     setSelected((s) => {
-      const arr = filtered;
-      const n = arr.length;
-      if (n === 0) return 0;
+      const n = filtered.length;
+      if (n <= 1) return Math.min(s, Math.max(0, n - 1));
       const cur = Math.min(s, n - 1);
-      if (prefs.skipRated) {
-        const unrated = arr.map((it, i) => (it.rating === 0 && i !== cur ? i : -1)).filter((i) => i >= 0);
-        if (unrated.length === 0) return cur;
-        if (prefs.randomMode) return unrated[Math.floor(Math.random() * unrated.length)];
-        const fwd = unrated.find((i) => i > cur);
-        return fwd !== undefined ? fwd : cur;
-      }
-      if (n <= 1) return cur;
       if (prefs.randomMode) {
         let r = cur;
         while (r === cur) r = Math.floor(Math.random() * n);
@@ -173,7 +177,7 @@ export function CurationPage() {
       }
       return Math.min(cur + 1, n - 1);
     });
-  }, [filtered, prefs.skipRated, prefs.randomMode]);
+  }, [filtered.length, prefs.randomMode]);
 
   // Stop the 評価待ち window and move on.
   const doAdvance = useCallback(() => {
@@ -191,9 +195,9 @@ export function CurationPage() {
       if (!item) return;
       setItems((arr) => arr.map((it) => (it.id === item.id ? { ...it, rating: r } : it)));
       void writeRating(item, r);
-      if (r > 0 && prefs.autoAdvance && waitingId.current === item.id) doAdvance();
+      if (r > 0 && prefs.autoAdvance && prefs.ratingAdvances && waitingId.current === item.id) doAdvance();
     },
-    [setItems, prefs.autoAdvance, doAdvance],
+    [setItems, prefs.autoAdvance, prefs.ratingAdvances, doAdvance],
   );
 
   const pickFolder = (dir: string | null) => {
@@ -215,8 +219,8 @@ export function CurationPage() {
     const id = currentRef.current?.id ?? null;
     if (!id) return;
     const live = itemsRef.current.find((it) => it.id === id);
-    if (live && live.rating > 0) {
-      doAdvance();
+    if (live && live.rating > 0 && prefs.ratingAdvances) {
+      doAdvance(); // already rated → straight to next
       return;
     }
     if (waitingId.current !== id) {
@@ -225,15 +229,27 @@ export function CurationPage() {
       advanceTimer.current = window.setTimeout(() => {
         if (currentRef.current?.id !== id) return; // user navigated away
         const l = itemsRef.current.find((it) => it.id === id);
-        if (prefs.defaultOkOnPass && l && l.rating === 0) setRating(l, 2); // setRating advances
-        else doAdvance();
+        // Untouched clip → 普(2) (write directly so we advance exactly once).
+        if (prefs.defaultOkOnPass && l && l.rating === 0) {
+          setItems((arr) => arr.map((it) => (it.id === id ? { ...it, rating: 2 } : it)));
+          void writeRating(l, 2);
+        }
+        doAdvance();
       }, Math.max(0, prefs.advanceDelay) * 1000);
     }
     if (prefs.loopUntilRated && audioRef.current) {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
     }
-  }, [prefs.autoAdvance, prefs.advanceDelay, prefs.defaultOkOnPass, prefs.loopUntilRated, doAdvance, setRating]);
+  }, [
+    prefs.autoAdvance,
+    prefs.advanceDelay,
+    prefs.defaultOkOnPass,
+    prefs.ratingAdvances,
+    prefs.loopUntilRated,
+    doAdvance,
+    setItems,
+  ]);
 
   useEffect(
     () => () => {
@@ -264,8 +280,15 @@ export function CurationPage() {
       e.preventDefault();
       const cur = currentRef.current;
       if (!cur) return;
-      const r: Rating = e.deltaY < 0 ? 3 : 1;
-      if (lastWheel.current.id === cur.id && lastWheel.current.r === r) return; // dedupe burst
+      // Level-based step: unrated counts as 普(2). up=+1, down=-1, clamped to 1..3.
+      // → from 未: up=良 / down=不可; from 良: down=普; from 不可: up=普.
+      const level = cur.rating || 2;
+      const r = (e.deltaY < 0 ? Math.min(3, level + 1) : Math.max(1, level - 1)) as Rating;
+      if (r === cur.rating) return; // no change (already at the end)
+      const now = Date.now();
+      if (now < wheelCooldown.current) return; // throttle trackpad bursts
+      if (lastWheel.current.id === cur.id && lastWheel.current.r === r) return; // dedupe
+      wheelCooldown.current = now + 120;
       lastWheel.current = { id: cur.id, r };
       setRating(cur, r);
     };
@@ -454,9 +477,26 @@ export function CurationPage() {
             <input type="checkbox" checked={prefs.randomMode} onChange={(e) => p({ randomMode: e.target.checked })} />
             ランダム
           </label>
+          <span className="rate-filter">
+            表示:
+            {([[0, '未'], [1, '不可'], [2, '普'], [3, '良']] as const).map(([v, l]) => (
+              <button
+                key={v}
+                className={`chip-toggle ${prefs.ratingFilter.includes(v) ? 'on' : ''}`}
+                onClick={() => toggleRatingFilter(v)}
+                title={`${l} を表示`}
+              >
+                {l}
+              </button>
+            ))}
+          </span>
           <label className="checkbox">
-            <input type="checkbox" checked={prefs.skipRated} onChange={(e) => p({ skipRated: e.target.checked })} />
-            評価済みをスキップ
+            <input
+              type="checkbox"
+              checked={!prefs.ratingAdvances}
+              onChange={(e) => p({ ratingAdvances: !e.target.checked })}
+            />
+            評価しても待機
           </label>
           <label className="checkbox">
             <input type="checkbox" checked={prefs.loopUntilRated} onChange={(e) => p({ loopUntilRated: e.target.checked })} />
@@ -611,8 +651,9 @@ export function CurationPage() {
       <p className="hint">
         ショートカット: Space=再生/停止 · ↑↓=移動 · 1=不可 / 2=普 / 3=良 · 0=クリア · Enter=次
         <br />
-        ホイール評価: 上=良 / 下=不可。<b>別アプリ作業中（ブラウザ非アクティブ）は画面全体</b>、
-        アクティブ時はプレイヤー上のみ。自動送りONなら 再生終了→評価待ち（評価で即次へ／無評価は普で次へ）。
+        ホイール評価: 未→上=良/下=不可、良→下=普、不可→上=普（緑赤から黄に戻せる）。
+        <b>別アプリ作業中（非アクティブ）は画面全体</b>、アクティブ時はプレイヤー上のみ。
+        自動送りONなら 再生終了→評価待ち（評価で即次へ。「評価しても待機」ONなら間隔まで送らない）。
       </p>
     </div>
   );

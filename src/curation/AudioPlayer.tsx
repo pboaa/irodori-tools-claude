@@ -89,7 +89,10 @@ export function AudioPlayer({ item, autoPlay, loop, onEnded, onPeak, audioRef }:
     return () => {
       cancelled = true;
     };
-  }, [item]);
+    // Reload only when the underlying file changes — not when its rating does
+    // (rating updates create a new item object but keep the same id).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id]);
 
   useEffect(
     () => () => {
