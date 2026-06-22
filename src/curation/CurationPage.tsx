@@ -17,32 +17,34 @@ const RATE_LABEL: Record<number, string> = { 1: '✕', 2: '△', 3: '◎' };
 const RATE_NAME: Record<number, string> = { 1: '不可', 2: '普', 3: '良' };
 const delayLabel = (s: number) => (s >= 60 && s % 60 === 0 ? `${s / 60}分` : `${s}秒`);
 
+/** How playback advances to the next clip. */
+type AdvanceMode = 'manual' | 'auto' | 'loop';
+
 /** Playback / evaluation preferences (persisted to localStorage). */
 interface Prefs {
-  autoAdvance: boolean;
-  advanceDelay: number;
+  /** manual=自分で送る / auto=間隔で自動送り / loop=評価するまでループ(評価で即次). */
+  advanceMode: AdvanceMode;
+  advanceDelay: number; // auto: interval seconds
+  defaultOkOnPass: boolean; // auto: untouched → 普
+  ratingAdvances: boolean; // auto: rating advances immediately (false = 評価しても待機)
   randomMode: boolean;
-  loopUntilRated: boolean;
   autoSkipQuiet: boolean;
   quietThresh: number;
   wheelRate: boolean;
-  defaultOkOnPass: boolean;
-  ratingAdvances: boolean;
-  /** Which ratings are shown/cycled through (0=未,1=不可,2=普,3=良). */
+  /** Which ratings are shown/cycled through (0=未,1=不可,2=普,3=良). [] = all. */
   ratingFilter: number[];
   mode: 'copy' | 'move';
   minRating: number;
 }
 const DEFAULT_PREFS: Prefs = {
-  autoAdvance: true,
+  advanceMode: 'auto',
   advanceDelay: 10,
+  defaultOkOnPass: true,
+  ratingAdvances: false, // 既定: 評価しても待機（即送りしない）
   randomMode: false,
-  loopUntilRated: false,
   autoSkipQuiet: false,
   quietThresh: 0.02,
   wheelRate: true,
-  defaultOkOnPass: true,
-  ratingAdvances: false, // 既定: 評価しても待機ON（評価しても即送りしない）
   ratingFilter: [], // empty = show all; press chips to show only those
   mode: 'copy',
   minRating: 3,
@@ -51,7 +53,14 @@ const PREFS_KEY = 'irodori-tts-curation-prefs-v1';
 function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    if (raw) return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
+    if (raw) {
+      const s = JSON.parse(raw) as Partial<Prefs> & { autoAdvance?: boolean; loopUntilRated?: boolean };
+      // Migrate old autoAdvance/loopUntilRated → advanceMode.
+      if (s.advanceMode === undefined) {
+        s.advanceMode = s.loopUntilRated ? 'loop' : s.autoAdvance === false ? 'manual' : 'auto';
+      }
+      return { ...DEFAULT_PREFS, ...s };
+    }
   } catch {
     /* ignore */
   }
@@ -226,15 +235,24 @@ export function CurationPage() {
     goNext();
   }, [goNext]);
 
-  // Set a rating, persist it, and — if we're waiting on this clip — advance.
+  // Set a rating, persist it, and advance depending on the mode:
+  //  - loop: any rating stops playback and goes straight to the next clip.
+  //  - auto: a rating during 評価待ち advances (unless 評価しても待機).
   const setRating = useCallback(
     (item: AudioItem | null, r: Rating) => {
       if (!item) return;
       setItems((arr) => arr.map((it) => (it.id === item.id ? { ...it, rating: r } : it)));
       void writeRating(item, r);
-      if (r > 0 && prefs.autoAdvance && prefs.ratingAdvances && waitingId.current === item.id) doAdvance();
+      if (r > 0) {
+        if (prefs.advanceMode === 'loop') {
+          audioRef.current?.pause();
+          doAdvance();
+        } else if (prefs.advanceMode === 'auto' && prefs.ratingAdvances && waitingId.current === item.id) {
+          doAdvance();
+        }
+      }
     },
-    [setItems, prefs.autoAdvance, prefs.ratingAdvances, doAdvance],
+    [setItems, prefs.advanceMode, prefs.ratingAdvances, doAdvance],
   );
 
   const pickFolder = (dir: string | null) => {
@@ -248,11 +266,11 @@ export function CurationPage() {
     setSelected(0);
   };
 
-  // On clip end (auto mode): if already rated → next; else enter 評価待ち for the
-  // configured interval (looping if enabled). A rating during the wait advances
-  // immediately; otherwise an untouched clip gets 普(2) and moves on.
+  // On clip end:
+  //  - manual: do nothing. loop: <audio loop> handles repeating (this won't fire).
+  //  - auto: if already rated → next; else 評価待ち for the interval, then 普(任意)+次.
   const handleEnded = useCallback(() => {
-    if (!prefs.autoAdvance) return;
+    if (prefs.advanceMode !== 'auto') return;
     const id = currentRef.current?.id ?? null;
     if (!id) return;
     const live = itemsRef.current.find((it) => it.id === id);
@@ -275,19 +293,7 @@ export function CurationPage() {
         doAdvance();
       }, Math.max(0, prefs.advanceDelay) * 1000);
     }
-    if (prefs.loopUntilRated && audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
-    }
-  }, [
-    prefs.autoAdvance,
-    prefs.advanceDelay,
-    prefs.defaultOkOnPass,
-    prefs.ratingAdvances,
-    prefs.loopUntilRated,
-    doAdvance,
-    setItems,
-  ]);
+  }, [prefs.advanceMode, prefs.advanceDelay, prefs.defaultOkOnPass, prefs.ratingAdvances, doAdvance, setItems]);
 
   useEffect(
     () => () => {
@@ -472,17 +478,21 @@ export function CurationPage() {
               ホイール: <b>上 = 良</b> / <b>下 = 不可</b>（良→下で普 / 不可→上で普）。何もしなければ <b>普</b> で次へ。
             </div>
             <div className="nagara-modes">
-              {prefs.autoAdvance ? (
+              {prefs.advanceMode === 'auto' && (
                 <>
-                  自動送り <b>ON</b>・{delayLabel(prefs.advanceDelay)}ごとに次へ
+                  自動送り <b>{delayLabel(prefs.advanceDelay)}</b>ごとに次へ
                   {!prefs.ratingAdvances && <> ／ 評価しても<b>待機</b>（テンポ一定）</>}
                 </>
-              ) : (
-                <>自動送り <b>OFF</b>（自分で送ってください）</>
               )}
+              {prefs.advanceMode === 'loop' && <>評価するまで<b>ループ</b>（評価したら止めて即次へ）</>}
+              {prefs.advanceMode === 'manual' && <>手動送り（自分で次へ）</>}
             </div>
             <div className="nagara-count">
-              {waitRemaining !== null ? `⏳ 評価待ち 残り ${waitRemaining}s` : '▶ 再生中…'}
+              {prefs.advanceMode === 'loop'
+                ? '🔁 評価するまでループ中'
+                : waitRemaining !== null
+                  ? `⏳ 評価待ち 残り ${waitRemaining}s`
+                  : '▶ 再生中…'}
             </div>
           </div>
         </div>
@@ -559,16 +569,21 @@ export function CurationPage() {
           </div>
 
           <div className="opt-group-label">
-            自動送り・待機（流し聞きのテンポ。作業中モードと組み合わせて「ながら評価」） ― 手動の送り（Enter / ↑↓ / クリック）には影響しません
+            進み方（流し聞きのテンポ。手動の送り Enter / ↑↓ / クリック には影響しません）
           </div>
 
-          <div className="opt opt-wide" title="再生終了後、間隔をおいて自動で次へ。">
+          <div className="opt opt-wide" title="次のクリップへ進む方式。">
             <div className="opt-head">
-              <label className="checkbox">
-                <input type="checkbox" checked={prefs.autoAdvance} onChange={(e) => p({ autoAdvance: e.target.checked })} />
-                自動送り
-              </label>
-              {prefs.autoAdvance && (
+              <span className="opt-label">進み方</span>
+              <select
+                value={prefs.advanceMode}
+                onChange={(e) => p({ advanceMode: e.target.value as AdvanceMode })}
+              >
+                <option value="manual">手動</option>
+                <option value="auto">自動送り（間隔）</option>
+                <option value="loop">評価するまでループ</option>
+              </select>
+              {prefs.advanceMode === 'auto' && (
                 <label className="opt-inline">
                   間隔
                   <select value={prefs.advanceDelay} onChange={(e) => p({ advanceDelay: Number(e.target.value) })}>
@@ -583,22 +598,23 @@ export function CurationPage() {
               )}
             </div>
             <p className="opt-desc">
-              再生終了から<b>この間隔</b>で自動的に次へ進みます（＝ながら評価のテンポ）。<b>手動の送りには無関係</b>。間隔を長くするほど作業中の負担が減ります。
+              <b>手動</b>: 自分で送る（再生は1回）。<b>自動送り</b>: 再生終了→間隔をおいて次へ（無評価は普）。
+              <b>評価するまでループ</b>: 評価するまで繰り返し再生し、<b>評価したら止めて即次へ</b>（間隔・自動の普付与なし）。
             </p>
           </div>
 
-          <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="評価しても即送りせず間隔まで待つ。">
+          <div className={`opt ${prefs.advanceMode === 'auto' ? '' : 'opt-disabled'}`} title="自動送りで評価しても即送りせず間隔まで待つ。">
             <label className="checkbox">
               <input
                 type="checkbox"
-                disabled={!prefs.autoAdvance}
+                disabled={prefs.advanceMode !== 'auto'}
                 checked={!prefs.ratingAdvances}
                 onChange={(e) => p({ ratingAdvances: !e.target.checked })}
               />
-              評価しても待機
+              評価しても待機（自動送り）
             </label>
             <p className="opt-desc">
-              ONだと評価しても即送りせず、間隔が来るまで留まります（作業中の進みすぎ防止）。OFFなら評価した瞬間に次へ。
+              自動送りのとき、評価しても即送りせず間隔が来るまで留まります（テンポ一定・進みすぎ防止）。OFFなら評価した瞬間に次へ。
             </p>
           </div>
         </div>
@@ -606,32 +622,19 @@ export function CurationPage() {
         <details className="cura-advanced">
           <summary>詳細設定（あまり使わない）</summary>
           <div className="cura-settings-body">
-            <div className="opt-group-label">自動送り中の挙動（自動送りONのときだけ働きます）</div>
+            <div className="opt-group-label">自動送りの挙動（進み方＝自動送りのときだけ働きます）</div>
 
-            <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="間隔が過ぎても未評価なら普(2)を付けて次へ。">
+            <div className={`opt ${prefs.advanceMode === 'auto' ? '' : 'opt-disabled'}`} title="間隔が過ぎても未評価なら普(2)を付けて次へ。">
               <label className="checkbox">
                 <input
                   type="checkbox"
-                  disabled={!prefs.autoAdvance}
+                  disabled={prefs.advanceMode !== 'auto'}
                   checked={prefs.defaultOkOnPass}
                   onChange={(e) => p({ defaultOkOnPass: e.target.checked })}
                 />
                 無操作は自動で普
               </label>
               <p className="opt-desc">自動送りの間隔が過ぎても未評価だった音声に、自動で「普(2)」を付けて次へ。良し悪しだけ手で付ければOKに。</p>
-            </div>
-
-            <div className={`opt ${prefs.autoAdvance ? '' : 'opt-disabled'}`} title="評価待ちの間、その音声をループ再生。">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  disabled={!prefs.autoAdvance}
-                  checked={prefs.loopUntilRated}
-                  onChange={(e) => p({ loopUntilRated: e.target.checked })}
-                />
-                評価待ちでループ
-              </label>
-              <p className="opt-desc">評価待ちの間、その音声をループ再生し続けます（評価するか間隔が来たら次へ）。</p>
             </div>
 
             <div className="opt-group-label">送り順・その他</div>
@@ -682,13 +685,15 @@ export function CurationPage() {
       )}
 
       <div className="player-wrap" ref={playerWrapRef}>
-        {waitRemaining !== null && (
-          <div className="wait-badge">⏳ 評価待ち 残り {waitRemaining}s</div>
+        {prefs.advanceMode === 'loop' && current ? (
+          <div className="wait-badge">🔁 評価するまでループ（評価で次へ）</div>
+        ) : (
+          waitRemaining !== null && <div className="wait-badge">⏳ 評価待ち 残り {waitRemaining}s</div>
         )}
         <AudioPlayer
           item={current}
-          autoPlay={prefs.autoAdvance}
-          loop={false}
+          autoPlay={prefs.advanceMode !== 'manual'}
+          loop={prefs.advanceMode === 'loop'}
           onEnded={handleEnded}
           onPeak={handlePeak}
           audioRef={audioRef}
@@ -798,7 +803,7 @@ export function CurationPage() {
         <br />
         ホイール評価: 未→上=良/下=不可、良→下=普、不可→上=普（緑赤から黄に戻せる）。
         <b>非アクティブ時は「作業中モード」になり画面全体</b>で評価可、アクティブ時はプレイヤー上のみ。
-        自動送りONなら 再生終了→評価待ち（評価で即次へ。「評価しても待機」ONなら間隔まで送らない）。
+        進み方: <b>手動</b>／<b>自動送り</b>（終了→間隔で次・無評価は普）／<b>評価するまでループ</b>（評価で止めて即次へ）。
       </p>
     </div>
   );
