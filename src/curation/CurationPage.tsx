@@ -293,9 +293,17 @@ export function CurationPage() {
     [prefs.advanceDelay, prefs.defaultOkOnPass, doAdvance, setItems],
   );
 
-  // Reschedule a running auto-wait when the interval changes.
+  // Reschedule a running auto-wait when the interval changes; cancel any pending
+  // wait/confirm when leaving auto mode so it can't fire a stray advance.
   useEffect(() => {
-    if (prefs.advanceMode === 'auto' && waitingId.current) armWaitTimer(waitingId.current);
+    if (prefs.advanceMode === 'auto' && waitingId.current) {
+      armWaitTimer(waitingId.current);
+    } else if (prefs.advanceMode !== 'auto' && advanceTimer.current) {
+      clearTimeout(advanceTimer.current);
+      advanceTimer.current = null;
+      waitingId.current = null;
+      waitUntil.current = 0;
+    }
   }, [prefs.advanceMode, armWaitTimer]);
 
   // Set a rating, persist it, and advance depending on the mode:
@@ -668,7 +676,7 @@ export function CurationPage() {
               )}
             </div>
             <p className="opt-desc">
-              <b>手動</b>: 自分で送る（再生は1回）。<b>自動送り</b>: 再生終了→間隔をおいて次へ（無評価は普）。
+              <b>手動</b>: 選ぶと再生、終わっても次へ行かない（Enter / ↑↓ / クリックで送る）。<b>自動送り</b>: 再生終了→間隔をおいて次へ（無評価は普）。
               <b>評価するまでループ</b>: 評価するまで繰り返し再生。<b>評価したら約1.5秒後に次へ</b>（その間にスクロールで修正可）。間隔・自動の普付与なし。
             </p>
           </div>
@@ -764,7 +772,7 @@ export function CurationPage() {
         )}
         <AudioPlayer
           item={current}
-          autoPlay={prefs.advanceMode !== 'manual'}
+          autoPlay
           loop={prefs.advanceMode === 'loop'}
           onEnded={handleEnded}
           onPeak={handlePeak}
