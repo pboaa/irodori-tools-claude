@@ -78,6 +78,7 @@ export function CurationPage() {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(600);
   const [waitRemaining, setWaitRemaining] = useState<number | null>(null);
+  const [windowActive, setWindowActive] = useState(typeof document !== 'undefined' ? document.hasFocus() : true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -146,6 +147,18 @@ export function CurationPage() {
     waitingId.current = null;
     waitUntil.current = 0; // the countdown interval clears the badge within a tick
   }, [current?.id]);
+
+  // Track window focus (for the "ながら評価" overlay shown while inactive).
+  useEffect(() => {
+    const on = () => setWindowActive(true);
+    const off = () => setWindowActive(false);
+    window.addEventListener('focus', on);
+    window.addEventListener('blur', off);
+    return () => {
+      window.removeEventListener('focus', on);
+      window.removeEventListener('blur', off);
+    };
+  }, []);
 
   // Tick the 評価待ち countdown.
   useEffect(() => {
@@ -441,6 +454,26 @@ export function CurationPage() {
 
   return (
     <div className="page curation">
+      {!windowActive && prefs.wheelRate && current && (
+        <div className="nagara-overlay">
+          <div className="nagara-card">
+            <div className="nagara-title">ながら評価モード</div>
+            <div className="nagara-sub">ウィンドウ非アクティブ中。ブラウザにカーソルを乗せてホイールで評価できます。</div>
+            <div className="nagara-now">
+              <span className={`nagara-rate r${current.rating}`}>
+                {current.rating === 0 ? '未評価' : RATE_NAME[current.rating]}
+              </span>
+              <span className="nagara-text">{current.meta?.text ?? current.name}</span>
+            </div>
+            <div className="nagara-help">
+              ホイール: <b>上 = 良</b> / <b>下 = 不可</b>（良→下で普 / 不可→上で普）。何もしなければ <b>普</b> で次へ。
+            </div>
+            <div className="nagara-count">
+              {waitRemaining !== null ? `⏳ 評価待ち 残り ${waitRemaining}s` : '▶ 再生中…'}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="toolbar">
         <button className="primary" onClick={openFolder}>
           フォルダを開く

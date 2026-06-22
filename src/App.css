@@ -704,6 +704,84 @@ button.reset:hover {
 .player-wrap {
   position: relative;
 }
+
+/* "ながら評価" overlay shown while the window is inactive. pointer-events:none
+   so wheel/clicks pass straight through to the page. */
+.nagara-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 11, 13, 0.45);
+  pointer-events: none;
+}
+.nagara-card {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 20px 28px;
+  max-width: 560px;
+  text-align: center;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+.nagara-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.nagara-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.nagara-now {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0;
+}
+.nagara-rate {
+  font-size: 22px;
+  font-weight: 800;
+  padding: 2px 14px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+}
+.nagara-rate.r1 {
+  color: #fff;
+  background: var(--reject);
+  border-color: var(--reject);
+}
+.nagara-rate.r2 {
+  color: #1a1b1e;
+  background: #f0a020;
+  border-color: #f0a020;
+}
+.nagara-rate.r3 {
+  color: #fff;
+  background: var(--keep);
+  border-color: var(--keep);
+}
+.nagara-text {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 360px;
+}
+.nagara-help {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.nagara-count {
+  margin-top: 10px;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
 .wait-badge {
   position: absolute;
   top: 2px;
