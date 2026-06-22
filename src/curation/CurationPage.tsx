@@ -560,7 +560,7 @@ export function CurationPage() {
                 {([[0, '未'], [1, '不可'], [2, '普'], [3, '良']] as const).map(([v, l]) => (
                   <button
                     key={v}
-                    className={`chip-toggle ${prefs.ratingFilter.includes(v) ? 'on' : ''}`}
+                    className={`chip-toggle rf${v} ${prefs.ratingFilter.includes(v) ? 'on' : 'off'}`}
                     onClick={() => toggleRatingFilter(v)}
                   >
                     {l}

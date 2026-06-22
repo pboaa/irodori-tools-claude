@@ -656,18 +656,37 @@ button.reset:hover {
   color: var(--muted);
 }
 .chip-toggle {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  color: var(--muted);
   border-radius: 999px;
-  padding: 1px 9px;
+  padding: 1px 10px;
   font-size: 11px;
   cursor: pointer;
+  border: 1px solid var(--border);
 }
-.chip-toggle.on {
-  background: #2b3450;
-  border-color: var(--accent);
-  color: var(--text);
+/* Off = dim outline; On = filled with the rating's color. */
+.chip-toggle.off {
+  background: transparent;
+  color: var(--muted);
+  opacity: 0.55;
+}
+.chip-toggle.rf0.on {
+  background: #5a606b;
+  border-color: #5a606b;
+  color: #fff;
+}
+.chip-toggle.rf1.on {
+  background: var(--reject);
+  border-color: var(--reject);
+  color: #fff;
+}
+.chip-toggle.rf2.on {
+  background: #f0a020;
+  border-color: #f0a020;
+  color: #1a1b1e;
+}
+.chip-toggle.rf3.on {
+  background: var(--keep);
+  border-color: var(--keep);
+  color: #fff;
 }
 .grow {
   flex: 1;
