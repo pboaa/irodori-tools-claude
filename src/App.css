@@ -801,6 +801,11 @@ button.reset:hover {
   font-size: 13px;
   line-height: 1.6;
 }
+.nagara-modes {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
 .nagara-count {
   margin-top: 10px;
   font-size: 20px;

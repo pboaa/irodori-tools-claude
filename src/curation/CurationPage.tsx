@@ -15,6 +15,7 @@ const ROW_H = 30; // px per row, must match .grid td height for virtualization
 const OVERSCAN = 8;
 const RATE_LABEL: Record<number, string> = { 1: '✕', 2: '△', 3: '◎' };
 const RATE_NAME: Record<number, string> = { 1: '不可', 2: '普', 3: '良' };
+const delayLabel = (s: number) => (s >= 60 && s % 60 === 0 ? `${s / 60}分` : `${s}秒`);
 
 /** Playback / evaluation preferences (persisted to localStorage). */
 interface Prefs {
@@ -457,8 +458,10 @@ export function CurationPage() {
       {!windowActive && prefs.wheelRate && current && (
         <div className="nagara-overlay">
           <div className="nagara-card">
-            <div className="nagara-title">ながら評価モード</div>
-            <div className="nagara-sub">ウィンドウ非アクティブ中。ブラウザにカーソルを乗せてホイールで評価できます。</div>
+            <div className="nagara-title">作業中モード</div>
+            <div className="nagara-sub">
+              ブラウザが非アクティブ（別アプリ作業中）です。この間も<b>ホイールで評価</b>できます。
+            </div>
             <div className="nagara-now">
               <span className={`nagara-rate r${current.rating}`}>
                 {current.rating === 0 ? '未評価' : RATE_NAME[current.rating]}
@@ -467,6 +470,16 @@ export function CurationPage() {
             </div>
             <div className="nagara-help">
               ホイール: <b>上 = 良</b> / <b>下 = 不可</b>（良→下で普 / 不可→上で普）。何もしなければ <b>普</b> で次へ。
+            </div>
+            <div className="nagara-modes">
+              {prefs.autoAdvance ? (
+                <>
+                  自動送り <b>ON</b>・{delayLabel(prefs.advanceDelay)}ごとに次へ
+                  {!prefs.ratingAdvances && <> ／ 評価しても<b>待機</b>（テンポ一定）</>}
+                </>
+              ) : (
+                <>自動送り <b>OFF</b>（自分で送ってください）</>
+              )}
             </div>
             <div className="nagara-count">
               {waitRemaining !== null ? `⏳ 評価待ち 残り ${waitRemaining}s` : '▶ 再生中…'}
@@ -541,12 +554,12 @@ export function CurationPage() {
               スクロールで評価
             </label>
             <p className="opt-desc">
-              ホイール 上=良 / 下=不可（良→下で普、不可→上で普）。<b>手動でも自動送り中でも有効</b>。非アクティブでも画面全体で効きます（最小化時は不可）。
+              ホイール 上=良 / 下=不可（良→下で普、不可→上で普）。いつでも有効で、ブラウザが<b>非アクティブになると「作業中モード」</b>になり<b>画面全体</b>で評価できます（別アプリ作業中でもOK・最小化時は不可）。
             </p>
           </div>
 
           <div className="opt-group-label">
-            自動送り（ながら評価）専用 ― 手動の送り（Enter / ↑↓ / クリック）には影響しません
+            自動送り・待機（流し聞きのテンポ。作業中モードと組み合わせて「ながら評価」） ― 手動の送り（Enter / ↑↓ / クリック）には影響しません
           </div>
 
           <div className="opt opt-wide" title="再生終了後、間隔をおいて自動で次へ。">
@@ -784,7 +797,7 @@ export function CurationPage() {
         ショートカット: Space=再生/停止 · ↑↓=移動 · 1=不可 / 2=普 / 3=良 · 0=クリア · Enter=次
         <br />
         ホイール評価: 未→上=良/下=不可、良→下=普、不可→上=普（緑赤から黄に戻せる）。
-        <b>別アプリ作業中（非アクティブ）は画面全体</b>、アクティブ時はプレイヤー上のみ。
+        <b>非アクティブ時は「作業中モード」になり画面全体</b>で評価可、アクティブ時はプレイヤー上のみ。
         自動送りONなら 再生終了→評価待ち（評価で即次へ。「評価しても待機」ONなら間隔まで送らない）。
       </p>
     </div>
