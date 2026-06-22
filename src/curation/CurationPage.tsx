@@ -97,6 +97,7 @@ export function CurationPage() {
   const advanceTimer = useRef<number | null>(null);
   const waitingId = useRef<string | null>(null);
   const waitUntil = useRef(0);
+  const waitStart = useRef(0);
   const currentRef = useRef<AudioItem | null>(null);
   const itemsRef = useRef<AudioItem[]>(items);
   const lastWheel = useRef<{ id: string | null; r: Rating }>({ id: null, r: 0 });
@@ -236,6 +237,33 @@ export function CurationPage() {
     goNext();
   }, [goNext]);
 
+  // (Re)arm the auto-mode 評価待ち timer from waitStart with the CURRENT interval,
+  // so changing the interval mid-wait updates the remaining time.
+  const armWaitTimer = useCallback(
+    (id: string) => {
+      waitUntil.current = waitStart.current + Math.max(0, prefs.advanceDelay) * 1000;
+      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+      advanceTimer.current = window.setTimeout(
+        () => {
+          if (currentRef.current?.id !== id) return;
+          const l = itemsRef.current.find((it) => it.id === id);
+          if (prefs.defaultOkOnPass && l && l.rating === 0) {
+            setItems((arr) => arr.map((it) => (it.id === id ? { ...it, rating: 2 } : it)));
+            void writeRating(l, 2);
+          }
+          doAdvance();
+        },
+        Math.max(0, waitUntil.current - Date.now()),
+      );
+    },
+    [prefs.advanceDelay, prefs.defaultOkOnPass, doAdvance, setItems],
+  );
+
+  // Reschedule a running auto-wait when the interval changes.
+  useEffect(() => {
+    if (prefs.advanceMode === 'auto' && waitingId.current) armWaitTimer(waitingId.current);
+  }, [prefs.advanceMode, armWaitTimer]);
+
   // Set a rating, persist it, and advance depending on the mode:
   //  - loop: any rating stops playback and goes straight to the next clip.
   //  - auto: a rating during 評価待ち advances (unless 評価しても待機).
@@ -297,20 +325,10 @@ export function CurationPage() {
     }
     if (waitingId.current !== id) {
       waitingId.current = id;
-      waitUntil.current = Date.now() + Math.max(0, prefs.advanceDelay) * 1000;
-      if (advanceTimer.current) clearTimeout(advanceTimer.current);
-      advanceTimer.current = window.setTimeout(() => {
-        if (currentRef.current?.id !== id) return; // user navigated away
-        const l = itemsRef.current.find((it) => it.id === id);
-        // Untouched clip → 普(2) (write directly so we advance exactly once).
-        if (prefs.defaultOkOnPass && l && l.rating === 0) {
-          setItems((arr) => arr.map((it) => (it.id === id ? { ...it, rating: 2 } : it)));
-          void writeRating(l, 2);
-        }
-        doAdvance();
-      }, Math.max(0, prefs.advanceDelay) * 1000);
+      waitStart.current = Date.now();
+      armWaitTimer(id);
     }
-  }, [prefs.advanceMode, prefs.advanceDelay, prefs.defaultOkOnPass, prefs.ratingAdvances, doAdvance, setItems]);
+  }, [prefs.advanceMode, prefs.ratingAdvances, doAdvance, armWaitTimer]);
 
   useEffect(
     () => () => {
