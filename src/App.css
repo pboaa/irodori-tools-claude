@@ -701,6 +701,22 @@ button.reset:hover {
   padding: 10px 14px;
   margin-bottom: 12px;
 }
+.player-wrap {
+  position: relative;
+}
+.wait-badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  z-index: 2;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-variant-numeric: tabular-nums;
+}
 .waveform {
   flex: 1;
   min-width: 0;

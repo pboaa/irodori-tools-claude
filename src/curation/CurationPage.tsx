@@ -77,12 +77,14 @@ export function CurationPage() {
   const [folderSel, setFolderSel] = useState<string | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(600);
+  const [waitRemaining, setWaitRemaining] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const playerWrapRef = useRef<HTMLDivElement | null>(null);
   const advanceTimer = useRef<number | null>(null);
   const waitingId = useRef<string | null>(null);
+  const waitUntil = useRef(0);
   const currentRef = useRef<AudioItem | null>(null);
   const itemsRef = useRef<AudioItem[]>(items);
   const lastWheel = useRef<{ id: string | null; r: Rating }>({ id: null, r: 0 });
@@ -133,6 +135,25 @@ export function CurationPage() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  // Cancel a pending 評価待ち when the clip actually changes (not on a rating
+  // update, which keeps the same id).
+  useEffect(() => {
+    if (advanceTimer.current) {
+      clearTimeout(advanceTimer.current);
+      advanceTimer.current = null;
+    }
+    waitingId.current = null;
+    waitUntil.current = 0; // the countdown interval clears the badge within a tick
+  }, [current?.id]);
+
+  // Tick the 評価待ち countdown.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setWaitRemaining(waitUntil.current > 0 ? Math.max(0, Math.ceil((waitUntil.current - Date.now()) / 1000)) : null);
+    }, 250);
+    return () => clearInterval(t);
+  }, []);
 
   // ---- Virtualized window. ----
   const maxScroll = Math.max(0, filtered.length * ROW_H - viewH);
@@ -186,6 +207,8 @@ export function CurationPage() {
       advanceTimer.current = null;
     }
     waitingId.current = null;
+    waitUntil.current = 0;
+    setWaitRemaining(null);
     goNext();
   }, [goNext]);
 
@@ -225,6 +248,7 @@ export function CurationPage() {
     }
     if (waitingId.current !== id) {
       waitingId.current = id;
+      waitUntil.current = Date.now() + Math.max(0, prefs.advanceDelay) * 1000;
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
       advanceTimer.current = window.setTimeout(() => {
         if (currentRef.current?.id !== id) return; // user navigated away
@@ -586,6 +610,9 @@ export function CurationPage() {
       )}
 
       <div className="player-wrap" ref={playerWrapRef}>
+        {waitRemaining !== null && (
+          <div className="wait-badge">⏳ 評価待ち 残り {waitRemaining}s</div>
+        )}
         <AudioPlayer
           item={current}
           autoPlay={prefs.autoAdvance}
